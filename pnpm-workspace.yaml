@@ -1,0 +1,6 @@
+# Allow these dependencies to run their build/postinstall scripts.
+# pnpm v10 blocks build scripts by default; these are safe and expected.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - unrs-resolver

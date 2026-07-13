@@ -1,0 +1,18 @@
+node_modules
+
+# next.js
+.next/
+out/
+build/
+
+# env files (never commit secrets)
+.env
+.env.local
+.env*.local
+
+# logs & build artifacts
+*.log
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+.DS_Store

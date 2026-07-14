@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { ArrowRight, ShieldCheck, Users } from "lucide-react";
+import { Logo } from "@frontend/components/Logo";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#f7f8fb] dark:bg-neutral-950">
       <section className="mx-auto flex min-h-screen max-w-7xl flex-col justify-center px-5 py-12">
         <div className="max-w-4xl">
+          <Logo height={132} className="mb-8" />
           <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-brand">NIT Kurukshetra</p>
           <h1 className="text-4xl font-bold tracking-normal text-ink dark:text-white md:text-6xl">MAD Club Management Portal</h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-neutral-600 dark:text-neutral-300">

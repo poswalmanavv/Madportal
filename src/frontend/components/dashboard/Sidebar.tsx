@@ -7,10 +7,10 @@ import {
   Handshake,
   Palette,
   PlusCircle,
-  ShieldCheck,
   UserRound,
   Users
 } from "lucide-react";
+import { Logo } from "@frontend/components/Logo";
 
 export type ViewKey =
   | "overview"
@@ -118,10 +118,10 @@ export function Sidebar({
         open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      <div className="mb-8 flex items-center gap-2.5 px-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand">
-          <ShieldCheck size={19} className="text-white" />
-        </span>
+      <div className="mb-8 flex items-center gap-3 px-3">
+        {/* The sidebar is always dark, so the mark is forced white -- the theme-following
+            version would vanish here whenever the rest of the app is in light mode. */}
+        <Logo height={40} variant="white" />
         <span>
           <span className="block text-sm font-bold leading-tight text-white">MAD Club</span>
           <span className="block text-[11px] leading-tight text-neutral-500">NIT Kurukshetra</span>

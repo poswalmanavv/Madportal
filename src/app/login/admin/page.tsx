@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Shield, Users, BarChart3 } from "lucide-react";
 import { AuthForm } from "@frontend/components/AuthForm";
+import { Logo } from "@frontend/components/Logo";
 
 export default function AdminLogin() {
   return (
@@ -9,6 +10,9 @@ export default function AdminLogin() {
         <div className="mx-auto max-w-2xl grid md:grid-cols-2 gap-8 items-start">
           <div className="space-y-6">
             <div>
+              <Link href="/" aria-label="MAD Club home">
+                <Logo height={76} className="mb-5" />
+              </Link>
               <h1 className="text-3xl font-bold text-ink dark:text-white flex items-center gap-2">
                 <Shield size={32} className="text-brand" />
                 Secretary Portal

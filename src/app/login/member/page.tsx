@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { AuthForm } from "@frontend/components/AuthForm";
+import { Logo } from "@frontend/components/Logo";
 
 export default function MemberLogin() {
   return (
@@ -9,6 +10,9 @@ export default function MemberLogin() {
         <div className="mx-auto max-w-2xl grid md:grid-cols-2 gap-8 items-start">
           <div className="space-y-6">
             <div>
+              <Link href="/" aria-label="MAD Club home">
+                <Logo height={76} className="mb-5" />
+              </Link>
               <h1 className="text-3xl font-bold text-ink dark:text-white">Member Portal</h1>
               <p className="mt-2 text-neutral-600 dark:text-neutral-400">
                 Access your MAD Club dashboard to manage tasks, track progress, and collaborate with team members.

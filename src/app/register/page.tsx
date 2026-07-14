@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DEPARTMENTS, SELECTABLE_TEAM_HEAD_ROLES, TEAM_HEAD_YEAR, YEARS } from "@shared/constants";
 import { AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
+import { Logo } from "@frontend/components/Logo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -97,6 +98,9 @@ export default function RegisterPage() {
     <main className="min-h-screen bg-gradient-to-br from-brand/5 to-transparent px-5 py-10">
       <div className="mx-auto w-full max-w-2xl rounded-lg border border-neutral-200 bg-white p-8 shadow-soft dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-8">
+          <Link href="/" aria-label="MAD Club home">
+            <Logo height={76} className="mb-5" />
+          </Link>
           <h1 className="text-3xl font-bold">Register as MAD Club Member</h1>
           <p className="mt-2 text-neutral-600 dark:text-neutral-400">
             Create your account to access the club management portal. Use your @nitkkr.ac.in email.

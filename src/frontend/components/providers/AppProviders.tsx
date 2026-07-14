@@ -1,25 +1,20 @@
 "use client";
 
 import { SessionProvider } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { SiteFooter } from "@frontend/components/SiteFooter";
 
+// The theme toggle lives in SiteFooter now. It used to be a floating button pinned to the
+// top-right of every page, which overlapped the dashboard header's avatar.
+//
+// The `dark` class is set before paint by the inline script in src/app/layout.tsx, so there
+// is no flash of the wrong theme on load and no state to hold here.
 export function AppProviders({ children }: { children: React.ReactNode }) {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
-
   return (
     <SessionProvider>
-      <button
-        type="button"
-        onClick={() => setDark((value) => !value)}
-        className="fixed right-4 top-4 z-50 rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-soft dark:border-neutral-800 dark:bg-neutral-900"
-      >
-        {dark ? "Light" : "Dark"}
-      </button>
-      {children}
+      <div className="flex min-h-screen flex-col">
+        <div className="flex-1">{children}</div>
+        <SiteFooter />
+      </div>
     </SessionProvider>
   );
 }

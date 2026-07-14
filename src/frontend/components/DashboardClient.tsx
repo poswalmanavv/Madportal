@@ -3,7 +3,7 @@
 import { signOut } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Bell, Download, KeyRound, Plus, Search, Send, ShieldCheck } from "lucide-react";
+import { Bell, Download, KeyRound, Plus, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
 import {
   DEPARTMENTS,
   DESIGN_STATUSES,
@@ -166,7 +166,13 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
                 {TASK_STATUSES.map((item) => <option key={item}>{item}</option>)}
               </select>
             </div>
-            <TaskWorkflow tasks={filteredTasks} currentUserId={data.current.id} canManage={canManage} refresh={refresh} />
+            <TaskWorkflow
+              tasks={filteredTasks}
+              currentUserId={data.current.id}
+              canManage={canManage}
+              canDelete={data.current.role === "secretary"}
+              refresh={refresh}
+            />
           </div>
         </section>
 
@@ -477,18 +483,45 @@ function TaskWorkflow({
   tasks,
   currentUserId,
   canManage,
+  canDelete,
   refresh
 }: {
   tasks: any[];
   currentUserId: string;
   canManage: boolean;
+  canDelete: boolean;
   refresh: () => Promise<void>;
 }) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   function canUpdate(task: any) {
     const assignees = (task.assignedTo ?? []).map((assignee: any) => String(assignee?._id ?? assignee));
     return canManage || assignees.includes(currentUserId);
+  }
+
+  // Deleting a task destroys its timeline -- the record of who did what. Secretaries only,
+  // and never on a single stray click. The server re-checks the role regardless.
+  async function deleteTask(task: any) {
+    const id = String(task._id ?? task.id);
+    const confirmed = window.confirm(
+      `Delete "${task.title}"?\n\nThis permanently removes the task and its progress history. It cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(id);
+    setDeleteError("");
+    const response = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    setDeletingId(null);
+
+    if (!response.ok) {
+      setDeleteError(
+        response.status === 403 ? "Only a secretary can delete a task." : "Could not delete the task."
+      );
+      return;
+    }
+    await refresh();
   }
 
   return (
@@ -515,14 +548,30 @@ function TaskWorkflow({
                 <td className="py-3 pr-4">{task.progress ?? 0}%</td>
                 <td className="py-3 pr-4">{task.deadline ? new Date(task.deadline).toLocaleDateString() : "-"}</td>
                 <td className="py-3 pr-4">
-                  {canUpdate(task) && (
-                    <button
-                      onClick={() => setOpenTaskId(openTaskId === id ? null : id)}
-                      className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold dark:border-neutral-700"
-                    >
-                      {openTaskId === id ? "Cancel" : "Update"}
-                    </button>
-                  )}
+                  <div className="flex gap-1">
+                    {canUpdate(task) && (
+                      <button
+                        onClick={() => setOpenTaskId(openTaskId === id ? null : id)}
+                        className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold dark:border-neutral-700"
+                      >
+                        {openTaskId === id ? "Cancel" : "Update"}
+                      </button>
+                    )}
+                    {/* Secretaries only. The server enforces this too -- hiding a button is
+                        not a permission check. */}
+                    {canDelete && (
+                      <button
+                        onClick={() => deleteTask(task)}
+                        disabled={deletingId === id}
+                        title="Delete this task"
+                        aria-label={`Delete task ${task.title}`}
+                        className="inline-flex items-center rounded-md border border-red-300 px-2 py-1 text-xs font-semibold text-red-600 disabled:opacity-50 dark:border-red-900"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {deleteError && deletingId === null && <p className="mt-1 text-xs text-red-600">{deleteError}</p>}
                   {openTaskId === id && (
                     <TaskUpdateForm
                       taskId={id}

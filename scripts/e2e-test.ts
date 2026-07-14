@@ -616,6 +616,45 @@ async function main() {
   });
   check("Member CANNOT update a task assigned to someone else (403)", idorAttempt.status === 403, `got ${idorAttempt.status}`);
 
+  // ----------------------------------------------------------------------- task deletion
+  section("Task deletion (secretaries only)");
+
+  // Deletion is narrower than every other task permission: a team head can create and update
+  // tasks but may NOT destroy one, because deleting it takes the timeline with it.
+  const memberDelete = await member.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+  check("An ordinary member CANNOT delete a task (403)", memberDelete.status === 403, `got ${memberDelete.status}`);
+
+  const leadDelete = await lead.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+  check("A TEAM HEAD CANNOT delete a task (403)", leadDelete.status === 403, `got ${leadDelete.status}`);
+
+  const stillThere = await db.collection("tasks").findOne({ _id: taskId });
+  check("...and the task is still in the database after those attempts", Boolean(stillThere));
+
+  const anonDelete = await anon.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+  check("An anonymous caller CANNOT delete a task (401)", anonDelete.status === 401, `got ${anonDelete.status}`);
+
+  const secretaryDelete = await secretary.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+  check("A SECRETARY CAN delete a task (200)", secretaryDelete.status === 200, `got ${secretaryDelete.status}`);
+
+  const gone = await db.collection("tasks").findOne({ _id: taskId });
+  check("...and the task is really gone from the database", !gone);
+
+  // The child rows must go too, or the database fills with orphans. SQLite does not cascade
+  // unless PRAGMA foreign_keys is on, which it is not -- so the route deletes them by hand.
+  const orphanAssignees = await client.execute({
+    sql: "SELECT COUNT(*) AS c FROM task_assignees WHERE task_id = ?",
+    args: [taskId]
+  });
+  const orphanTimeline = await client.execute({
+    sql: "SELECT COUNT(*) AS c FROM task_timeline WHERE task_id = ?",
+    args: [taskId]
+  });
+  check("...its assignee rows are gone (no orphans)", Number(orphanAssignees.rows[0].c) === 0, `${orphanAssignees.rows[0].c} left`);
+  check("...its timeline rows are gone (no orphans)", Number(orphanTimeline.rows[0].c) === 0, `${orphanTimeline.rows[0].c} left`);
+
+  const deleteMissing = await secretary.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+  check("Deleting an already-deleted task returns 404", deleteMissing.status === 404, `got ${deleteMissing.status}`);
+
   // ------------------------------------------------------------------------- EP entry route
   section("EP entries (the route that did not exist)");
 

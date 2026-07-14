@@ -1,16 +1,14 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
+import { db, newId, nowIso } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
+import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
+import { sponsorshipEntries, sponsorshipHistory } from "@backend/schema";
 import { sponsorshipStatusUpdateSchema } from "@backend/validators";
-import Notification from "@backend/models/Notification";
-import PerformanceLog from "@backend/models/PerformanceLog";
-import SponsorshipEntry from "@backend/models/SponsorshipEntry";
 
-// Sponsorships were create-only: whatever status you picked at creation was the status
-// forever, so the "pipeline" never actually moved. This advances an existing entry and
-// appends to its history trail.
+// Advances an existing sponsorship and appends to its history trail.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handleRoute(async () => {
     const current = sessionUser(await auth());
@@ -23,45 +21,52 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
     const { id } = await params;
-    await connectDB();
-    const entry = await SponsorshipEntry.findById(id);
+    const [entry] = await db.select().from(sponsorshipEntries).where(eq(sponsorshipEntries.id, id)).limit(1);
     if (!entry) return NextResponse.json({ error: "Sponsorship entry not found" }, { status: 404 });
 
-    // The member who owns the entry, or a team lead. Anyone else is not allowed to move
-    // another member's sponsorship along.
-    const isOwner = String(entry.createdBy) === current.id;
+    const isOwner = entry.createdBy === current.id;
     if (!isOwner && !canManageTasks(current)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    entry.currentStatus = payload.data.currentStatus;
-    entry.detailedUpdate = payload.data.detailedUpdate;
-    if (payload.data.followUpDate) entry.followUpDate = new Date(payload.data.followUpDate);
-    entry.history.push({
+    await db
+      .update(sponsorshipEntries)
+      .set({
+        currentStatus: payload.data.currentStatus,
+        detailedUpdate: payload.data.detailedUpdate,
+        followUpDate: payload.data.followUpDate
+          ? new Date(payload.data.followUpDate).toISOString()
+          : entry.followUpDate,
+        updatedAt: nowIso()
+      })
+      .where(eq(sponsorshipEntries.id, id));
+
+    await db.insert(sponsorshipHistory).values({
+      id: newId(),
+      entryId: id,
       actor: current.id,
       update: payload.data.detailedUpdate,
       status: payload.data.currentStatus
     });
-    await entry.save();
 
-    await PerformanceLog.create({
-      user: current.id,
-      type: "sponsorship",
-      action: `moved sponsorship to ${payload.data.currentStatus}`,
-      referenceId: entry._id,
-      points: payload.data.currentStatus === "Confirmed" ? 3 : 1
-    });
+    await logPerformance(
+      current.id,
+      "sponsorship",
+      `moved sponsorship to ${payload.data.currentStatus}`,
+      id,
+      payload.data.currentStatus === "Confirmed" ? 3 : 1
+    );
 
-    // Tell the owner when someone else moves their entry.
     if (!isOwner) {
-      await Notification.create({
-        user: entry.createdBy,
-        title: "Sponsorship updated",
-        message: `${current.name} moved ${entry.companyName} to ${payload.data.currentStatus}`,
-        type: "sponsorship"
-      });
+      await notify(
+        entry.createdBy,
+        "Sponsorship updated",
+        `${current.name} moved ${entry.companyName} to ${payload.data.currentStatus}`,
+        "sponsorship"
+      );
     }
 
-    return NextResponse.json(entry);
+    const [updated] = await db.select().from(sponsorshipEntries).where(eq(sponsorshipEntries.id, id)).limit(1);
+    return NextResponse.json({ ...updated, _id: updated.id });
   });
 }

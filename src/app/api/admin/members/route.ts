@@ -1,30 +1,34 @@
 import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
-import { badJson, escapeRegex, handleRoute, parseJson } from "@backend/http";
+import { db, newId } from "@backend/db";
+import { badJson, handleRoute, parseJson } from "@backend/http";
+import { listUsers, setUserDepartments } from "@backend/queries";
 import { sessionUser } from "@backend/rbac";
+import { users } from "@backend/schema";
 import { adminCreateMemberSchema } from "@backend/validators";
-import User from "@backend/models/User";
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
     const current = sessionUser(await auth());
     if (!current || current.role !== "secretary") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    await connectDB();
+
     const params = new URL(request.url).searchParams;
-    const filter: Record<string, unknown> = {};
-    if (params.get("year")) filter.year = params.get("year");
-    if (params.get("team")) filter.departments = params.get("team");
+    const year = params.get("year");
+    const team = params.get("team");
+    const q = params.get("q")?.toLowerCase();
 
-    const q = params.get("q");
-    if (q) {
-      // Escaped: an unescaped user string here is a ReDoS vector.
-      const pattern = new RegExp(escapeRegex(q), "i");
-      filter.$or = [{ name: pattern }, { email: pattern }];
-    }
+    // The member list is club-sized, so filtering in memory is simpler than assembling a
+    // dynamic WHERE across the departments join, and it keeps the search free of any
+    // wildcard-injection concern.
+    let all = await listUsers();
+    if (year) all = all.filter((user) => user.year === year);
+    if (team) all = all.filter((user) => user.departments.includes(team));
+    if (q) all = all.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(q));
 
-    return NextResponse.json(await User.find(filter).sort({ year: 1, name: 1 }).lean());
+    all.sort((a, b) => a.year.localeCompare(b.year) || a.name.localeCompare(b.name));
+    return NextResponse.json(all.map((user) => ({ ...user, _id: user.id })));
   });
 }
 
@@ -39,41 +43,37 @@ export async function POST(request: Request) {
     const payload = adminCreateMemberSchema.safeParse(body.data);
     if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
-    await connectDB();
     const email = payload.data.email.toLowerCase();
-    const passwordHash = await bcrypt.hash(payload.data.password, 12);
+    const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (existing.length) return NextResponse.json({ error: "Email already registered" }, { status: 409 });
 
-    try {
-      const member = await User.create({
+    const id = newId();
+    await db.insert(users).values({
+      id,
+      name: payload.data.name,
+      email,
+      passwordHash: await bcrypt.hash(payload.data.password, 12),
+      year: payload.data.year,
+      role: "member",
+      teamHeadRole: payload.data.teamHeadRole,
+      canManageTeam: payload.data.canManageTeam
+    });
+    await setUserDepartments(id, payload.data.departments);
+
+    // Explicit projection: the password hash must never appear in a response body.
+    return NextResponse.json(
+      {
+        id,
+        _id: id,
         name: payload.data.name,
         email,
         year: payload.data.year,
-        departments: payload.data.departments,
-        passwordHash,
         role: "member",
+        departments: payload.data.departments,
         teamHeadRole: payload.data.teamHeadRole,
         canManageTeam: payload.data.canManageTeam
-      });
-      // Explicit projection. The document from create() carries passwordHash in memory even
-      // though the schema marks it select:false, and this route used to serialize it whole.
-      return NextResponse.json(
-        {
-          id: member._id,
-          name: member.name,
-          email: member.email,
-          year: member.year,
-          role: member.role,
-          departments: member.departments,
-          teamHeadRole: member.teamHeadRole,
-          canManageTeam: member.canManageTeam
-        },
-        { status: 201 }
-      );
-    } catch (error) {
-      if ((error as { code?: number }).code === 11000) {
-        return NextResponse.json({ error: "Email already registered" }, { status: 409 });
-      }
-      throw error;
-    }
+      },
+      { status: 201 }
+    );
   });
 }

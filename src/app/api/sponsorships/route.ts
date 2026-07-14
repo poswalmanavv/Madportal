@@ -1,43 +1,77 @@
+import { and, desc, eq, like, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
-import { badJson, handleRoute, parseJson } from "@backend/http";
+import { db, newId } from "@backend/db";
+import { badJson, escapeLike, handleRoute, parseJson } from "@backend/http";
+import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
+import { sponsorshipEntries, sponsorshipHistory } from "@backend/schema";
 import { sponsorshipSchema } from "@backend/validators";
-import Notification from "@backend/models/Notification";
-import PerformanceLog from "@backend/models/PerformanceLog";
-import SponsorshipEntry from "@backend/models/SponsorshipEntry";
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
-  const current = sessionUser(await auth());
-  if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  await connectDB();
-  const q = new URL(request.url).searchParams.get("q");
-  const filter: Record<string, unknown> = canManageTasks(current) ? {} : { createdBy: current.id };
-  if (q) filter.$text = { $search: q };
-  return NextResponse.json(await SponsorshipEntry.find(filter).sort({ dateContacted: -1 }).lean());
+    const current = sessionUser(await auth());
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const q = new URL(request.url).searchParams.get("q");
+    const scope = canManageTasks(current) ? undefined : eq(sponsorshipEntries.createdBy, current.id);
+    const search = q
+      ? or(
+          like(sponsorshipEntries.companyName, `%${escapeLike(q)}%`),
+          like(sponsorshipEntries.industry, `%${escapeLike(q)}%`)
+        )
+      : undefined;
+
+    const rows = await db
+      .select()
+      .from(sponsorshipEntries)
+      .where(and(scope, search))
+      .orderBy(desc(sponsorshipEntries.dateContacted));
+
+    return NextResponse.json(rows.map((row) => ({ ...row, _id: row.id })));
   });
 }
 
 export async function POST(request: Request) {
   return handleRoute(async () => {
-  const current = sessionUser(await auth());
-  if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await parseJson(request);
-  if (!body.ok) return badJson();
-  const payload = sponsorshipSchema.safeParse(body.data);
-  if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
-  await connectDB();
-  const entry = await SponsorshipEntry.create({
-    ...payload.data,
-    dateContacted: new Date(payload.data.dateContacted),
-    followUpDate: payload.data.followUpDate ? new Date(payload.data.followUpDate) : undefined,
-    createdBy: current.id,
-    history: [{ actor: current.id, update: payload.data.detailedUpdate, status: payload.data.currentStatus }]
-  });
-  await PerformanceLog.create({ user: current.id, type: "sponsorship", action: "created sponsorship entry", referenceId: entry._id, points: 2 });
-  await Notification.create({ user: current.id, title: "Sponsorship updated", message: `${payload.data.companyName} was added`, type: "sponsorship" });
-  return NextResponse.json(entry, { status: 201 });
+    const current = sessionUser(await auth());
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = await parseJson(request);
+    if (!body.ok) return badJson();
+
+    const payload = sponsorshipSchema.safeParse(body.data);
+    if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
+
+    const id = newId();
+    await db.insert(sponsorshipEntries).values({
+      id,
+      companyName: payload.data.companyName,
+      industry: payload.data.industry,
+      companyWebsite: payload.data.companyWebsite || null,
+      contactPersonName: payload.data.contactPersonName,
+      designation: payload.data.designation,
+      contactNumber: payload.data.contactNumber,
+      email: payload.data.email,
+      dateContacted: new Date(payload.data.dateContacted).toISOString(),
+      sponsorshipRequirement: payload.data.sponsorshipRequirement,
+      currentStatus: payload.data.currentStatus,
+      followUpDate: payload.data.followUpDate ? new Date(payload.data.followUpDate).toISOString() : null,
+      detailedUpdate: payload.data.detailedUpdate,
+      createdBy: current.id
+    });
+
+    await db.insert(sponsorshipHistory).values({
+      id: newId(),
+      entryId: id,
+      actor: current.id,
+      update: payload.data.detailedUpdate,
+      status: payload.data.currentStatus
+    });
+
+    await logPerformance(current.id, "sponsorship", "created sponsorship entry", id, 2);
+    await notify(current.id, "Sponsorship updated", `${payload.data.companyName} was added`, "sponsorship");
+
+    return NextResponse.json({ id, _id: id, ...payload.data }, { status: 201 });
   });
 }

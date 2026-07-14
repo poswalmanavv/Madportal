@@ -8,14 +8,17 @@ authorization, validation, and the HTTP API.
 ```
 src/backend/
   auth.ts          NextAuth config: credentials provider, JWT callbacks, session shape
-  db.ts            MongoDB connection (cached), DB_NAME
+  db.ts            libSQL client + Drizzle instance, newId(), pingDB()
+  schema.ts        Drizzle SQL schema (the single source of truth for the tables)
+  queries.ts       Shared user reads (stitches user_departments back into departments[])
+  task-queries.ts  Task reads (stitches task_assignees back into assignedTo[])
+  dashboard.ts     Builds the dashboard aggregate -- used by BOTH the page and the API
   rbac.ts          Authorization rules: isLeader, canManageTasks, canViewMember, canManageDesign
   validators.ts    Zod schemas -- every request body is parsed through one of these
-  http.ts          Route helpers: handleRoute, parseJson, badJson, escapeRegex, tooManyRequests
+  http.ts          Route helpers: handleRoute, parseJson, badJson, escapeLike, tooManyRequests
   rate-limit.ts    In-memory fixed-window limiter
-  models/          Mongoose schemas (User, Task, EPEntry, SponsorshipEntry, DesignRequest,
-                   Notification, PerformanceLog, Department)
 
+drizzle/                  Generated SQL migrations (committed -- do not hand-edit)
 src/app/api/**/route.ts   HTTP entry points ONLY (see below)
 src/middleware.ts         Edge middleware: redirects anonymous users off /dashboard, /account
 src/shared/constants.ts   Enums shared with the frontend (years, departments, statuses)
@@ -120,12 +123,52 @@ Without that re-read, claims would be frozen at sign-in for the full 30 days.
 
 ## Database
 
-MongoDB via Mongoose. `MONGODB_URI` supplies the host; the database name is **always**
-`mad-club`, set by `DB_NAME` in `db.ts`, which overrides any path in the URI. The seed
-script hardcodes the same name — keep them in sync.
+**SQLite via libSQL**, with Drizzle as the query builder.
 
-The connection is cached on `global` so it survives hot reloads and lambda reuse. A failed
-connect clears the cached promise so the process can recover once Mongo is healthy.
+| | `DATABASE_URL` | Notes |
+|---|---|---|
+| Local | `file:./data/mad-club.db` | A real SQLite file. Delete it to start over. |
+| Production | `libsql://<db>.turso.io` | Turso. Also needs `DATABASE_AUTH_TOKEN`. |
+
+**A `file:` URL cannot be used in production on Netlify.** Serverless functions get a
+read-only filesystem and a throwaway container per request, so a `.db` file would fail to
+write or silently vanish. Turso serves the same SQLite over HTTP, so it persists. The SQL,
+the schema and the migrations are identical either way — only the URL changes.
+
+### Schema, and what changed coming from MongoDB
+
+Embedded arrays became real tables. That is the whole point of the move:
+
+| MongoDB | SQLite |
+|---|---|
+| `users.departments[]` | `user_departments` |
+| `tasks.assignedTo[]` | `task_assignees` |
+| `tasks.timeline[]` | `task_timeline` |
+| `epEntries.history[]` | `ep_history` |
+| `sponsorships.history[]` | `sponsorship_history` |
+
+So "every task assigned to me" is now an indexed join rather than loading every document and
+filtering in memory. `queries.ts` and `task-queries.ts` stitch these back into the
+`departments: string[]` / `assignedTo: [...]` shapes the API already returned, so the JSON
+contract did not change.
+
+IDs are **UUID strings** (`crypto.randomUUID()`), not integers — they stay opaque in URLs and
+keep the same shape Mongo's ObjectIds had. Timestamps are ISO-8601 **text**; SQLite has no
+date type, and that format sorts chronologically, so `ORDER BY` works without conversion.
+Booleans are **0/1** — remember this when asserting `=== false` in a test.
+
+### Migrations
+
+`drizzle/` holds generated SQL migrations and is committed. Change `schema.ts`, then:
+
+```bash
+pnpm db:generate   # writes a new migration file from the schema diff
+pnpm db:migrate    # applies pending migrations to DATABASE_URL
+```
+
+`db:migrate` is idempotent (Drizzle records what has run). Run it once against Turso before
+the first deploy, and again after any schema change. **Netlify does not run migrations for
+you** — a new table will not exist in production until you do.
 
 ## Known limitations
 
@@ -139,9 +182,11 @@ connect clears the cached promise so the process can recover once Mongo is healt
 ## Commands
 
 ```bash
-pnpm dev              # dev server
-pnpm build            # production build (a real typecheck -- nothing is suppressed)
-pnpm seed             # reset the local DB to fixtures. Refuses a non-local URI without SEED_CONFIRM=yes
-pnpm migrate:content  # one-off: rename "Logistics Team" -> "Content Team" in existing data
-pnpm test:e2e         # 75 API checks against a running server
+pnpm dev            # dev server
+pnpm build          # production build (a real typecheck -- nothing is suppressed)
+pnpm db:generate    # regenerate migrations after editing schema.ts
+pnpm db:migrate     # apply migrations to DATABASE_URL (run against Turso before deploying)
+pnpm seed           # reset the local DB to fixtures. Refuses a remote DB without SEED_CONFIRM=yes
+pnpm purge:demo     # strip seeded fixtures + any account still using the seed password
+pnpm test:e2e       # 75 API checks against a running server
 ```

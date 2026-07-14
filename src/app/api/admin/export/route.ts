@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { unparse } from "papaparse";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
 import { handleRoute } from "@backend/http";
+import { listUsers } from "@backend/queries";
 import { sessionUser } from "@backend/rbac";
-import Task from "@backend/models/Task";
-import User from "@backend/models/User";
+import { listAllTasks } from "@backend/task-queries";
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -26,51 +25,51 @@ function neutralizeFormula(value: unknown) {
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
-  const current = sessionUser(await auth());
-  if (!current || current.role !== "secretary") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  await connectDB();
+    const current = sessionUser(await auth());
+    if (!current || current.role !== "secretary") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const users = await User.find({ active: true }).lean();
-  const tasks = await Task.find({}).lean();
-  const rows = users.map((member) => {
-    const assigned = tasks.filter((task) => task.assignedTo.some((id: unknown) => String(id) === String(member._id)));
-    const completed = assigned.filter((task) => task.status === "Completed");
-    return {
-      name: member.name,
-      email: member.email,
-      year: member.year,
-      departments: member.departments?.join("; "),
-      teamHeadRole: member.teamHeadRole,
-      totalTasksAssigned: assigned.length,
-      totalTasksCompleted: completed.length,
-      pendingWork: assigned.length - completed.length,
-      completionPercentage: assigned.length ? Math.round((completed.length / assigned.length) * 100) : 0
-    };
-  });
+    const members = await listUsers({ activeOnly: true });
+    const tasks = await listAllTasks();
 
-  const format = new URL(request.url).searchParams.get("format");
-  if (format === "excel") {
-    const header = Object.keys(rows[0] ?? {}).map((cell) => `<th>${escapeHtml(cell)}</th>`).join("");
-    const body = rows
-      .map((row) => `<tr>${Object.values(row).map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
-      .join("");
-    return new NextResponse(`<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`, {
+    const rows = members.map((member) => {
+      const assigned = tasks.filter((task) => task.assignedTo.some((a) => a.id === member.id));
+      const completed = assigned.filter((task) => task.status === "Completed");
+      return {
+        name: member.name,
+        email: member.email,
+        year: member.year,
+        departments: member.departments.join("; "),
+        teamHeadRole: member.teamHeadRole,
+        totalTasksAssigned: assigned.length,
+        totalTasksCompleted: completed.length,
+        pendingWork: assigned.length - completed.length,
+        completionPercentage: assigned.length ? Math.round((completed.length / assigned.length) * 100) : 0
+      };
+    });
+
+    const format = new URL(request.url).searchParams.get("format");
+    if (format === "excel") {
+      const header = Object.keys(rows[0] ?? {}).map((cell) => `<th>${escapeHtml(cell)}</th>`).join("");
+      const bodyRows = rows
+        .map((row) => `<tr>${Object.values(row).map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+        .join("");
+      return new NextResponse(`<table><thead><tr>${header}</tr></thead><tbody>${bodyRows}</tbody></table>`, {
+        headers: {
+          "Content-Type": "application/vnd.ms-excel",
+          "Content-Disposition": 'attachment; filename="mad-club-performance.xls"'
+        }
+      });
+    }
+
+    const safeRows = rows.map((row) =>
+      Object.fromEntries(Object.entries(row).map(([key, value]) => [key, neutralizeFormula(value)]))
+    );
+
+    return new NextResponse(unparse(safeRows), {
       headers: {
-        "Content-Type": "application/vnd.ms-excel",
-        "Content-Disposition": 'attachment; filename="mad-club-performance.xls"'
+        "Content-Type": "text/csv",
+        "Content-Disposition": 'attachment; filename="mad-club-performance.csv"'
       }
     });
-  }
-
-  const safeRows = rows.map((row) =>
-    Object.fromEntries(Object.entries(row).map(([key, value]) => [key, neutralizeFormula(value)]))
-  );
-
-  return new NextResponse(unparse(safeRows), {
-    headers: {
-      "Content-Type": "text/csv",
-      "Content-Disposition": 'attachment; filename="mad-club-performance.csv"'
-    }
-  });
   });
 }

@@ -1,28 +1,33 @@
+import { and, desc, eq, like, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
-import { badJson, handleRoute, parseJson } from "@backend/http";
+import { db, newId } from "@backend/db";
+import { badJson, escapeLike, handleRoute, parseJson } from "@backend/http";
+import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
+import { epEntries } from "@backend/schema";
 import { epEntrySchema } from "@backend/validators";
-import EPEntry from "@backend/models/EPEntry";
-import Notification from "@backend/models/Notification";
-import PerformanceLog from "@backend/models/PerformanceLog";
-
-// This route did not exist. The EP form in the dashboard has always POSTed to
-// /api/ep-entries, so every "Add New EP" submission 404'd and silently failed --
-// EP records could only ever be created by the seed script.
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
     const current = sessionUser(await auth());
     if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    await connectDB();
 
     const q = new URL(request.url).searchParams.get("q");
-    const filter: Record<string, unknown> = canManageTasks(current) ? {} : { createdBy: current.id };
-    if (q) filter.$text = { $search: q };
 
-    return NextResponse.json(await EPEntry.find(filter).sort({ date: -1 }).lean());
+    // A leader sees every entry; a member sees only their own.
+    const scope = canManageTasks(current) ? undefined : eq(epEntries.createdBy, current.id);
+    // Mongo used a $text index; SQLite gets a LIKE with the wildcards escaped so a user's
+    // "%" or "_" cannot turn into a wildcard match.
+    const search = q ? or(like(epEntries.epName, `%${escapeLike(q)}%`), like(epEntries.organization, `%${escapeLike(q)}%`)) : undefined;
+
+    // and() ignores undefined operands, so this covers all four combinations of
+    // scoped/unscoped and searching/not.
+    const where = and(scope, search);
+    const rows = await db.select().from(epEntries).where(where).orderBy(desc(epEntries.date));
+
+    // Keep `_id` alongside `id` -- the dashboard and tests key off it.
+    return NextResponse.json(rows.map((row) => ({ ...row, _id: row.id })));
   });
 }
 
@@ -37,27 +42,25 @@ export async function POST(request: Request) {
     const payload = epEntrySchema.safeParse(body.data);
     if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
-    await connectDB();
-    const entry = await EPEntry.create({
-      ...payload.data,
-      date: new Date(payload.data.date),
+    const id = newId();
+    await db.insert(epEntries).values({
+      id,
+      epName: payload.data.epName,
+      organization: payload.data.organization,
+      contactNumber: payload.data.contactNumber,
+      email: payload.data.email,
+      personContacted: payload.data.personContacted,
+      date: new Date(payload.data.date).toISOString(),
+      discussionSummary: payload.data.discussionSummary,
+      currentStatus: payload.data.currentStatus,
+      detailedUpdate: payload.data.detailedUpdate,
+      attachNotes: payload.data.attachNotes ?? null,
       createdBy: current.id
     });
 
-    await PerformanceLog.create({
-      user: current.id,
-      type: "ep",
-      action: "created EP entry",
-      referenceId: entry._id,
-      points: 2
-    });
-    await Notification.create({
-      user: current.id,
-      title: "EP entry added",
-      message: `${payload.data.epName} was added`,
-      type: "ep"
-    });
+    await logPerformance(current.id, "ep", "created EP entry", id, 2);
+    await notify(current.id, "EP entry added", `${payload.data.epName} was added`, "ep");
 
-    return NextResponse.json(entry, { status: 201 });
+    return NextResponse.json({ id, _id: id, ...payload.data }, { status: 201 });
   });
 }

@@ -7,11 +7,125 @@
  *   2. pnpm seed           (resets to a known fixture set)
  *   3. pnpm test:e2e       (BASE_URL=http://localhost:3002 pnpm test:e2e to change port)
  *
- * These tests WRITE to the database named in MONGODB_URI. Point them at a local Mongo.
+ * These tests WRITE to the database at DATABASE_URL. Point them at a local SQLite file.
  */
 import fs from "fs";
 import path from "path";
-import { MongoClient, type Db } from "mongodb";
+import { createClient, type Client } from "@libsql/client";
+
+/**
+ * The database assertions below were written against MongoDB. Rather than reword 40 checks
+ * -- and risk quietly weakening one while porting -- this shim speaks the small subset of
+ * the Mongo API the suite actually uses, backed by SQL. The tests themselves are unchanged,
+ * so a pass here means the SAME behaviour is still true after the move to SQLite.
+ */
+const TABLES: Record<string, string> = {
+  users: "users",
+  tasks: "tasks",
+  epentries: "ep_entries",
+  sponsorshipentries: "sponsorship_entries",
+  designrequests: "design_requests"
+};
+
+const toSnake = (field: string) =>
+  field === "_id" ? "id" : field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+const toCamel = (column: string) => column.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+
+// SQLite has no boolean type -- these come back as 0/1 and must be converted, or a check
+// like `canManageTeam === false` fails against a perfectly correct 0.
+const BOOLEAN_COLUMNS = new Set(["active", "can_manage_team", "read"]);
+
+function toDoc(row: Record<string, unknown> | undefined) {
+  if (!row) return null;
+  const doc: Record<string, unknown> = {};
+  for (const [column, value] of Object.entries(row)) {
+    doc[toCamel(column)] = BOOLEAN_COLUMNS.has(column) ? Boolean(value) : value;
+  }
+  doc._id = row.id;
+  return doc;
+}
+
+/** Builds a WHERE clause from the Mongo-style filters this suite uses. */
+function buildWhere(filter: Record<string, any> = {}) {
+  const clauses: string[] = [];
+  const args: any[] = [];
+
+  for (const [field, condition] of Object.entries(filter)) {
+    const column = toSnake(field);
+    if (condition && typeof condition === "object" && "$regex" in condition) {
+      // The suite only ever uses a literal substring pattern (e.g. "\\.1738…").
+      clauses.push(`${column} LIKE ?`);
+      args.push(`%${String(condition.$regex).replace(/\\/g, "")}%`);
+    } else if (condition && typeof condition === "object" && "$in" in condition) {
+      const list = condition.$in as unknown[];
+      clauses.push(`${column} IN (${list.map(() => "?").join(", ")})`);
+      args.push(...list);
+    } else {
+      clauses.push(`${column} = ?`);
+      args.push(typeof condition === "boolean" ? Number(condition) : condition);
+    }
+  }
+
+  return { sql: clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "", args };
+}
+
+function makeDb(client: Client) {
+  return {
+    collection(name: string) {
+      const table = TABLES[name] ?? name;
+      return {
+        async countDocuments(filter: Record<string, any> = {}) {
+          const { sql, args } = buildWhere(filter);
+          const result = await client.execute({ sql: `SELECT COUNT(*) AS c FROM ${table}${sql}`, args });
+          return Number(result.rows[0].c);
+        },
+        async findOne(filter: Record<string, any>) {
+          const { sql, args } = buildWhere(filter);
+          const result = await client.execute({ sql: `SELECT * FROM ${table}${sql} LIMIT 1`, args });
+          return toDoc(result.rows[0] as Record<string, unknown> | undefined);
+        },
+        async insertOne(doc: Record<string, any>) {
+          // departments live in their own table now.
+          const { departments, ...rest } = doc;
+          const columns = Object.keys(rest).map(toSnake);
+          const values = Object.values(rest).map((v) =>
+            typeof v === "boolean" ? Number(v) : v instanceof Date ? v.toISOString() : v
+          );
+          await client.execute({
+            sql: `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+            args: values as never[]
+          });
+          if (Array.isArray(departments)) {
+            for (const department of departments) {
+              await client.execute({
+                sql: "INSERT INTO user_departments (user_id, department) VALUES (?, ?)",
+                args: [rest.id, department]
+              });
+            }
+          }
+        },
+        async updateOne(filter: Record<string, any>, update: { $set: Record<string, any> }) {
+          const sets = Object.keys(update.$set).map((field) => `${toSnake(field)} = ?`);
+          const setArgs = Object.values(update.$set).map((v) => (typeof v === "boolean" ? Number(v) : v));
+          const { sql, args } = buildWhere(filter);
+          await client.execute({
+            sql: `UPDATE ${table} SET ${sets.join(", ")}${sql}`,
+            args: [...setArgs, ...args] as never[]
+          });
+        },
+        async deleteOne(filter: Record<string, any>) {
+          const { sql, args } = buildWhere(filter);
+          await client.execute({ sql: `DELETE FROM ${table}${sql}`, args: args as never[] });
+        },
+        async deleteMany(filter: Record<string, any>) {
+          const { sql, args } = buildWhere(filter);
+          await client.execute({ sql: `DELETE FROM ${table}${sql}`, args: args as never[] });
+        }
+      };
+    }
+  };
+}
 
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) return;
@@ -30,7 +144,7 @@ loadEnvFile(path.resolve(process.cwd(), ".env.local"));
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3002";
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "Password@123";
-const MONGODB_URI = process.env.MONGODB_URI!;
+const DATABASE_URL = process.env.DATABASE_URL!;
 
 let passed = 0;
 let failed = 0;
@@ -132,9 +246,8 @@ class Session {
 async function main() {
   console.log(`Running end-to-end tests against ${BASE_URL}\n`);
 
-  const client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  const db: Db = client.db("mad-club");
+  const client = createClient({ url: DATABASE_URL });
+  const db = makeDb(client);
 
   const anon = new Session();
   const stamp = Date.now();
@@ -377,6 +490,8 @@ async function main() {
   // A member sharing the team IS visible to that team's head.
   const epTeammateEmail = `epmate.${stamp}@nitkkr.ac.in`;
   await db.collection("users").insertOne({
+    // SQLite will not invent a primary key the way Mongo invented an _id.
+    id: crypto.randomUUID(),
     name: "EP Teammate",
     email: epTeammateEmail,
     passwordHash: "x",
@@ -468,7 +583,14 @@ async function main() {
 
   const epAfter = await db.collection("epentries").findOne({ _id: epDoc?._id });
   check("...the EP status really changed in the database", epAfter?.currentStatus === "Confirmed", `status ${epAfter?.currentStatus}`);
-  check("...and the change is recorded in the history trail", (epAfter?.history?.length ?? 0) > 0, `${epAfter?.history?.length ?? 0} history entries`);
+
+  // The history trail used to be an array embedded in the document; it is now its own table.
+  const epHistoryRows = await client.execute({
+    sql: "SELECT COUNT(*) AS c FROM ep_history WHERE entry_id = ?",
+    args: [epId]
+  });
+  const epHistoryCount = Number(epHistoryRows.rows[0].c);
+  check("...and the change is recorded in the history trail", epHistoryCount > 0, `${epHistoryCount} history entries`);
 
   const epForeign = await attacker.patch(`/api/ep-entries/${epId}`, {
     currentStatus: "Rejected",
@@ -646,7 +768,7 @@ async function main() {
   await db.collection("epentries").deleteMany({ epName: `E2E Partnership ${stamp}` });
   await db.collection("tasks").deleteMany({ title: { $in: [`E2E task ${stamp}`, `Lead task ${stamp}`] } });
   await db.collection("designrequests").deleteMany({ designTitle: `E2E Poster ${stamp}` });
-  await client.close();
+  client.close();
 
   console.log(`\n${"=".repeat(58)}`);
   console.log(`  ${passed} passed, ${failed} failed`);

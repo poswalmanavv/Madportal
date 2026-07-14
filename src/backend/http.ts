@@ -37,3 +37,10 @@ export async function handleRoute(handler: () => Promise<Response>): Promise<Res
 export function escapeRegex(input: string) {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// User-supplied text going into a SQL LIKE must have the wildcards escaped, or a search for
+// "%" matches every row. Pair with `ESCAPE '\'` — Drizzle's like() emits that by default in
+// SQLite when a backslash is present in the pattern.
+export function escapeLike(input: string) {
+  return input.replace(/[\\%_]/g, "\\$&");
+}

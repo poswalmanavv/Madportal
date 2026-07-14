@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
-import { connectDB } from "@backend/db";
+import { pingDB } from "@backend/db";
 
-// Uptime probe. Reports database reachability, so a monitor can distinguish "app is up"
-// from "app is up but cannot reach Mongo".
+// Uptime probe. Reports database reachability, so a monitor (or a human debugging a deploy)
+// can tell "app is up" apart from "app is up but cannot reach the database".
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await connectDB();
-    await mongoose.connection.db?.admin().ping();
+    await pingDB();
     return NextResponse.json({ status: "ok", database: "connected" });
   } catch (error) {
     console.error("[health] database unreachable:", error);

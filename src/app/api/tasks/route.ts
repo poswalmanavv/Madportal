@@ -1,62 +1,69 @@
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
+import { db, newId } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
+import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
+import { taskAssignees, tasks, taskTimeline } from "@backend/schema";
+import { listAllTasks, listTasksForAssignee } from "@backend/task-queries";
 import { taskSchema } from "@backend/validators";
-import Notification from "@backend/models/Notification";
-import PerformanceLog from "@backend/models/PerformanceLog";
-import Task from "@backend/models/Task";
 
 export async function GET(request: Request) {
   return handleRoute(async () => {
-  const current = sessionUser(await auth());
-  if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  await connectDB();
+    const current = sessionUser(await auth());
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status");
-  const filter: Record<string, unknown> = canManageTasks(current) ? {} : { assignedTo: current.id };
-  if (status) filter.status = status;
+    const status = new URL(request.url).searchParams.get("status");
+    const all = canManageTasks(current) ? await listAllTasks() : await listTasksForAssignee(current.id);
+    const filtered = status ? all.filter((task) => task.status === status) : all;
 
-  const tasks = await Task.find(filter)
-    .populate("assignedTo", "name email year departments")
-    .populate("createdBy", "name email")
-    .sort({ deadline: 1 })
-    .lean();
-  return NextResponse.json(tasks);
+    return NextResponse.json(filtered);
   });
 }
 
 export async function POST(request: Request) {
   return handleRoute(async () => {
-  const current = sessionUser(await auth());
-  if (!current || !canManageTasks(current)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const current = sessionUser(await auth());
+    if (!current || !canManageTasks(current)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await parseJson(request);
-  if (!body.ok) return badJson();
-  const payload = taskSchema.safeParse(body.data);
-  if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
+    const body = await parseJson(request);
+    if (!body.ok) return badJson();
 
-  await connectDB();
-  const task = await Task.create({
-    ...payload.data,
-    deadline: new Date(payload.data.deadline),
-    createdBy: current.id,
-    status: "Pending",
-    timeline: [{ actor: current.id, status: "Pending", progress: 0, comment: payload.data.remarks ?? "Task created" }]
-  });
+    const payload = taskSchema.safeParse(body.data);
+    if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
-  await Notification.insertMany(
-    payload.data.assignedTo.map((user) => ({
-      user,
-      title: "New task assigned",
-      message: `${current.name} assigned: ${payload.data.title}`,
-      type: "task"
-    }))
-  );
-  await PerformanceLog.create({ user: current.id, type: "task", action: "created task", referenceId: task._id });
+    const id = newId();
+    await db.insert(tasks).values({
+      id,
+      title: payload.data.title,
+      description: payload.data.description,
+      createdBy: current.id,
+      priority: payload.data.priority,
+      deadline: new Date(payload.data.deadline).toISOString(),
+      status: "Pending",
+      progress: 0,
+      attachments: payload.data.attachments,
+      remarks: payload.data.remarks ?? null
+    });
 
-  return NextResponse.json(task, { status: 201 });
+    await db
+      .insert(taskAssignees)
+      .values(payload.data.assignedTo.map((userId) => ({ taskId: id, userId })));
+
+    await db.insert(taskTimeline).values({
+      id: newId(),
+      taskId: id,
+      actor: current.id,
+      status: "Pending",
+      progress: 0,
+      comment: payload.data.remarks ?? "Task created"
+    });
+
+    for (const userId of payload.data.assignedTo) {
+      await notify(userId, "New task assigned", `${current.name} assigned: ${payload.data.title}`, "task");
+    }
+    await logPerformance(current.id, "task", "created task", id);
+
+    return NextResponse.json({ id, _id: id, ...payload.data, status: "Pending", progress: 0 }, { status: 201 });
   });
 }

@@ -1,17 +1,16 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
 import { DESIGN_APPROVAL_STATUSES } from "@shared/constants";
-import { connectDB } from "@backend/db";
+import { db, nowIso } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
+import { logPerformance, notify } from "@backend/queries";
 import { canManageDesign, sessionUser } from "@backend/rbac";
+import { designRequests } from "@backend/schema";
 import { designStatusUpdateSchema } from "@backend/validators";
-import DesignRequest from "@backend/models/DesignRequest";
-import Notification from "@backend/models/Notification";
-import PerformanceLog from "@backend/models/PerformanceLog";
 
-// Design requests were write-only: they were created, never displayed and never
-// actionable, so the assigned designer had no way to work them. This lets the designer
-// move their own request forward and attach the finished artwork.
+// Lets the assigned designer move their own request forward and attach the finished
+// artwork; sign-off stays with the design head.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handleRoute(async () => {
     const current = sessionUser(await auth());
@@ -24,19 +23,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
     const { id } = await params;
-    await connectDB();
-    const design = await DesignRequest.findById(id);
+    const [design] = await db.select().from(designRequests).where(eq(designRequests.id, id)).limit(1);
     if (!design) return NextResponse.json({ error: "Design request not found" }, { status: 404 });
 
-    const isAssignedDesigner = String(design.assignedDesigner) === current.id;
+    const isAssignedDesigner = design.assignedDesigner === current.id;
     const isApprover = canManageDesign(current);
     if (!isAssignedDesigner && !isApprover) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Separation of duties: a designer may take work up to "Submitted", but signing it off
-    // is the design head's or secretary's call. Otherwise a designer could approve their
-    // own work and close the loop on themselves.
+    // is the design head's or secretary's call. Otherwise a designer could approve their own
+    // work and close the loop on themselves.
     const isApprovalStatus = (DESIGN_APPROVAL_STATUSES as readonly string[]).includes(payload.data.status);
     if (isApprovalStatus && !isApprover) {
       return NextResponse.json(
@@ -45,28 +43,34 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       );
     }
 
-    design.status = payload.data.status;
-    if (payload.data.finalSubmissionLink) design.finalSubmissionLink = payload.data.finalSubmissionLink;
-    await design.save();
+    await db
+      .update(designRequests)
+      .set({
+        status: payload.data.status,
+        finalSubmissionLink: payload.data.finalSubmissionLink || design.finalSubmissionLink,
+        updatedAt: nowIso()
+      })
+      .where(eq(designRequests.id, id));
 
-    await PerformanceLog.create({
-      user: current.id,
-      type: "design",
-      action: `moved design request to ${payload.data.status}`,
-      referenceId: design._id,
-      points: payload.data.status === "Submitted" ? 3 : 1
-    });
+    await logPerformance(
+      current.id,
+      "design",
+      `moved design request to ${payload.data.status}`,
+      id,
+      payload.data.status === "Submitted" ? 3 : 1
+    );
 
     // Notify the other side of the handoff: the requester when the designer submits, the
     // designer when the request is signed off.
     const notifyUser = isAssignedDesigner ? design.requestedBy : design.assignedDesigner;
-    await Notification.create({
-      user: notifyUser,
-      title: "Design request updated",
-      message: `${current.name} moved ${design.designTitle} to ${payload.data.status}`,
-      type: "design"
-    });
+    await notify(
+      notifyUser,
+      "Design request updated",
+      `${current.name} moved ${design.designTitle} to ${payload.data.status}`,
+      "design"
+    );
 
-    return NextResponse.json(design);
+    const [updated] = await db.select().from(designRequests).where(eq(designRequests.id, id)).limit(1);
+    return NextResponse.json({ ...updated, _id: updated.id });
   });
 }

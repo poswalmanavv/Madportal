@@ -1,14 +1,31 @@
+/**
+ * Seeds throwaway fixtures for local development and the end-to-end suite.
+ *
+ * DELETES every row first. Never run against production -- it refuses a remote (Turso)
+ * database unless SEED_CONFIRM=yes.
+ */
 import bcrypt from "bcryptjs";
 import fs from "fs";
-import mongoose from "mongoose";
 import path from "path";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import { DEPARTMENTS } from "../src/shared/constants";
 import { authorizedSecretaries } from "../src/backend/rbac";
-import Department from "../src/backend/models/Department";
-import EPEntry from "../src/backend/models/EPEntry";
-import SponsorshipEntry from "../src/backend/models/SponsorshipEntry";
-import Task from "../src/backend/models/Task";
-import User from "../src/backend/models/User";
+import {
+  departments,
+  designRequests,
+  epEntries,
+  epHistory,
+  notifications,
+  performanceLogs,
+  sponsorshipEntries,
+  sponsorshipHistory,
+  taskAssignees,
+  tasks,
+  taskTimeline,
+  userDepartments,
+  users
+} from "../src/backend/schema";
 
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) return;
@@ -19,108 +36,144 @@ function loadEnvFile(filePath: string) {
     const equalsIndex = line.indexOf("=");
     if (equalsIndex === -1) continue;
     const key = line.slice(0, equalsIndex).trim();
-    const value = line.slice(equalsIndex + 1).trim().replace(/^['\"]|['\"]$/g, "");
-    if (!(key in process.env)) {
-      process.env[key] = value;
-    }
+    const value = line.slice(equalsIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (!(key in process.env)) process.env[key] = value;
   }
 }
-
 loadEnvFile(path.resolve(process.cwd(), ".env.local"));
-loadEnvFile(path.resolve(process.cwd(), ".env"));
 
-const uri = process.env.MONGODB_URI;
-if (!uri) throw new Error("MONGODB_URI is not set. Add it to .env.local before seeding.");
-const mongoUri = uri;
+const rawUrl = process.env.DATABASE_URL;
+if (!rawUrl) throw new Error("DATABASE_URL is not set. Add it to .env.local before seeding.");
+const url: string = rawUrl;
 
-// This script DELETES every document in the database before re-seeding. Running it
-// against a shared or production cluster is unrecoverable, so a non-local URI has to
-// be confirmed explicitly with SEED_CONFIRM=yes.
-const isLocalDatabase = /@?(localhost|127\.0\.0\.1)(:|\/)/.test(mongoUri);
-if (!isLocalDatabase && process.env.SEED_CONFIRM !== "yes") {
+// A file: URL is a local SQLite file. Anything else is a remote database, and wiping one of
+// those is unrecoverable.
+const isLocal = url.startsWith("file:");
+if (!isLocal && process.env.SEED_CONFIRM !== "yes") {
   throw new Error(
-    "Refusing to wipe a non-local database. MONGODB_URI does not point at localhost.\n" +
-      "If you really mean to erase this cluster, re-run with SEED_CONFIRM=yes."
+    "Refusing to wipe a remote database. DATABASE_URL is not a local file.\n" +
+      "If you really mean to erase it, re-run with SEED_CONFIRM=yes."
   );
 }
 
 const seedPassword = process.env.SEED_PASSWORD ?? "Password@123";
+const id = () => crypto.randomUUID();
+const daysFromNow = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
 
 async function main() {
-  await mongoose.connect(mongoUri, { dbName: "mad-club" });
-  await Promise.all([
-    User.deleteMany({}),
-    Task.deleteMany({}),
-    EPEntry.deleteMany({}),
-    SponsorshipEntry.deleteMany({}),
-    Department.deleteMany({})
-  ]);
+  const client = createClient(
+    isLocal ? { url } : { url, authToken: process.env.DATABASE_AUTH_TOKEN }
+  );
+  const db = drizzle(client);
+
+  // Child tables first -- foreign keys cascade, but being explicit keeps this readable.
+  await db.delete(taskTimeline);
+  await db.delete(taskAssignees);
+  await db.delete(epHistory);
+  await db.delete(sponsorshipHistory);
+  await db.delete(notifications);
+  await db.delete(performanceLogs);
+  await db.delete(designRequests);
+  await db.delete(tasks);
+  await db.delete(epEntries);
+  await db.delete(sponsorshipEntries);
+  await db.delete(userDepartments);
+  await db.delete(departments);
+  await db.delete(users);
 
   const passwordHash = await bcrypt.hash(seedPassword, 12);
   const secretaryEmails = authorizedSecretaries();
-  const seededSecretaryEmails = secretaryEmails.length > 0 ? secretaryEmails : ["123105128@nitkkr.ac.in"];
-  const primarySecretaryEmail = seededSecretaryEmails[0];
-  const secretaryUsers = seededSecretaryEmails.map((email, index) => ({
-    name: index === 0 ? "Manav Secretary" : `Secretary ${index + 1}`,
-    email,
-    passwordHash,
-    year: "4th Year" as const,
-    role: "secretary" as const,
-    departments: DEPARTMENTS,
-    teamHeadRole: "None" as const
-  }));
-  const users = await User.insertMany([
-    ...secretaryUsers,
-    { name: "Diya EP Head", email: "diya@nitkkr.ac.in", passwordHash, year: "4th Year", departments: ["EP Team"], teamHeadRole: "EP Head" },
-    { name: "Kabir Design Head", email: "kabir@nitkkr.ac.in", passwordHash, year: "4th Year", departments: ["Design Team"], teamHeadRole: "Design Team Head" },
-    { name: "Meera Sponsorship", email: "meera@nitkkr.ac.in", passwordHash, year: "3rd Year", departments: ["Sponsorship Team"], teamHeadRole: "None", canManageTeam: true },
-    { name: "Rohan Media", email: "rohan@nitkkr.ac.in", passwordHash, year: "2nd Year", departments: ["Media Team"], teamHeadRole: "None" },
-    { name: "Isha Content", email: "isha@nitkkr.ac.in", passwordHash, year: "1st Year", departments: ["Content Team"], teamHeadRole: "None" }
-  ]);
+  const seededSecretaries = secretaryEmails.length ? secretaryEmails : ["123105128@nitkkr.ac.in"];
 
-  const byEmail = (email: string) => users.find((user) => user.email === email)!;
+  const fixtures = [
+    ...seededSecretaries.map((email, index) => ({
+      id: id(),
+      name: index === 0 ? "Manav Secretary" : `Secretary ${index + 1}`,
+      email,
+      passwordHash,
+      year: "4th Year",
+      role: "secretary",
+      teamHeadRole: "None",
+      canManageTeam: false,
+      departments: [...DEPARTMENTS]
+    })),
+    { id: id(), name: "Diya EP Head", email: "diya@nitkkr.ac.in", passwordHash, year: "4th Year", role: "member", teamHeadRole: "EP Head", canManageTeam: false, departments: ["EP Team"] },
+    { id: id(), name: "Kabir Design Head", email: "kabir@nitkkr.ac.in", passwordHash, year: "4th Year", role: "member", teamHeadRole: "Design Team Head", canManageTeam: false, departments: ["Design Team"] },
+    { id: id(), name: "Meera Sponsorship", email: "meera@nitkkr.ac.in", passwordHash, year: "3rd Year", role: "member", teamHeadRole: "None", canManageTeam: true, departments: ["Sponsorship Team"] },
+    { id: id(), name: "Rohan Media", email: "rohan@nitkkr.ac.in", passwordHash, year: "2nd Year", role: "member", teamHeadRole: "None", canManageTeam: false, departments: ["Media Team"] },
+    { id: id(), name: "Isha Content", email: "isha@nitkkr.ac.in", passwordHash, year: "1st Year", role: "member", teamHeadRole: "None", canManageTeam: false, departments: ["Content Team"] }
+  ];
 
-  await Department.insertMany(DEPARTMENTS.map((name) => ({ name, members: users.filter((user) => user.departments.includes(name)).map((user) => user._id) })));
+  await db.insert(users).values(
+    fixtures.map(({ departments: _departments, ...user }) => user)
+  );
+  await db.insert(userDepartments).values(
+    fixtures.flatMap((user) => user.departments.map((department) => ({ userId: user.id, department })))
+  );
+  await db.insert(departments).values(DEPARTMENTS.map((name) => ({ id: id(), name })));
 
-  await Task.insertMany([
+  const byEmail = (email: string) => fixtures.find((user) => user.email === email)!;
+  const secretary = byEmail(seededSecretaries[0]);
+  const kabir = byEmail("kabir@nitkkr.ac.in");
+  const meera = byEmail("meera@nitkkr.ac.in");
+  const rohan = byEmail("rohan@nitkkr.ac.in");
+  const diya = byEmail("diya@nitkkr.ac.in");
+
+  const taskA = id();
+  const taskB = id();
+
+  await db.insert(tasks).values([
     {
+      id: taskA,
       title: "Prepare sponsor prospect list",
       description: "Create a verified list of 30 sponsor leads with contact owners.",
-      createdBy: byEmail(primarySecretaryEmail)._id,
-      assignedTo: [byEmail(primarySecretaryEmail)._id],
+      createdBy: secretary.id,
       priority: "High",
-      deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5),
+      deadline: daysFromNow(5),
       status: "In Progress",
       progress: 45,
-      timeline: [{ actor: byEmail(primarySecretaryEmail)._id, status: "Pending", progress: 0, comment: "Task created" }]
+      attachments: []
     },
     {
+      id: taskB,
       title: "Design orientation poster",
       description: "Create poster and reel cover for the club orientation.",
-      createdBy: byEmail("kabir@nitkkr.ac.in")._id,
-      assignedTo: [byEmail("rohan@nitkkr.ac.in")._id],
+      createdBy: kabir.id,
       priority: "Medium",
-      deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3),
+      deadline: daysFromNow(3),
       status: "Review",
       progress: 80,
-      timeline: [{ actor: byEmail("kabir@nitkkr.ac.in")._id, status: "Pending", progress: 0, comment: "Creative brief shared" }]
+      attachments: []
     }
   ]);
 
-  await EPEntry.create({
+  await db.insert(taskAssignees).values([
+    { taskId: taskA, userId: meera.id },
+    { taskId: taskB, userId: rohan.id }
+  ]);
+
+  await db.insert(taskTimeline).values([
+    { id: id(), taskId: taskA, actor: secretary.id, status: "Pending", progress: 0, comment: "Task created" },
+    { id: id(), taskId: taskB, actor: kabir.id, status: "Pending", progress: 0, comment: "Creative brief shared" }
+  ]);
+
+  await db.insert(epEntries).values({
+    id: id(),
     epName: "Technova Cultural Exchange",
     organization: "NIT Delhi",
     contactNumber: "9876543210",
     email: "events@nitdelhi.ac.in",
     personContacted: "Event Coordinator",
-    date: new Date(),
+    date: new Date().toISOString(),
     discussionSummary: "Discussed cross-campus event participation.",
     currentStatus: "Follow-up Required",
     detailedUpdate: "Send formal event partnership deck.",
-    createdBy: byEmail("diya@nitkkr.ac.in")._id
+    createdBy: diya.id
   });
 
-  await SponsorshipEntry.create({
+  const sponsorshipId = id();
+  await db.insert(sponsorshipEntries).values({
+    id: sponsorshipId,
     companyName: "North Tech Labs",
     industry: "SaaS",
     companyWebsite: "https://example.com",
@@ -128,20 +181,27 @@ async function main() {
     designation: "Marketing Manager",
     contactNumber: "9876501234",
     email: "marketing@example.com",
-    dateContacted: new Date(),
+    dateContacted: new Date().toISOString(),
     sponsorshipRequirement: "Title sponsorship for annual MAD showcase.",
     currentStatus: "Proposal Sent",
-    followUpDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
+    followUpDate: daysFromNow(7),
     detailedUpdate: "Proposal deck shared over email.",
-    createdBy: byEmail("meera@nitkkr.ac.in")._id,
-    history: [{ actor: byEmail("meera@nitkkr.ac.in")._id, update: "Proposal deck shared over email.", status: "Proposal Sent" }]
+    createdBy: meera.id
   });
 
-  await mongoose.disconnect();
+  await db.insert(sponsorshipHistory).values({
+    id: id(),
+    entryId: sponsorshipId,
+    actor: meera.id,
+    update: "Proposal deck shared over email.",
+    status: "Proposal Sent"
+  });
+
+  console.log(`Seeded ${fixtures.length} users, 2 tasks, 1 EP entry, 1 sponsorship.`);
+  client.close();
 }
 
-main().catch(async (error) => {
-  console.error(error);
-  await mongoose.disconnect();
+main().catch((error) => {
+  console.error("Seed failed:", error);
   process.exit(1);
 });

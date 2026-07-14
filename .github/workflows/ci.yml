@@ -10,21 +10,9 @@ jobs:
   verify:
     runs-on: ubuntu-latest
 
-    # A real MongoDB, so the end-to-end suite exercises the actual data layer rather than
-    # a mock. Health-checked so the app never starts against a database that is not ready.
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
+    # No database service container any more: SQLite is a file, so CI just creates one.
     env:
-      MONGODB_URI: mongodb://127.0.0.1:27017
+      DATABASE_URL: file:./data/mad-club.db
       AUTH_SECRET: ci-secret-not-used-in-production
       NEXTAUTH_SECRET: ci-secret-not-used-in-production
       NEXTAUTH_URL: http://localhost:3000
@@ -53,14 +41,17 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Create the database schema
+        run: pnpm db:migrate
+
       - name: Seed the test database
         run: pnpm seed
 
       - name: Start the production server
         run: |
           pnpm start &
-          # Wait for the health endpoint rather than sleeping a fixed amount: the job
-          # should fail loudly if the app never becomes reachable.
+          # Wait for the health endpoint rather than sleeping a fixed amount, so the job
+          # fails loudly if the app never becomes reachable.
           for i in $(seq 1 30); do
             if curl -sf "$BASE_URL/api/health" > /dev/null; then
               echo "Server is up."

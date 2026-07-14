@@ -1,29 +1,36 @@
+import { and, count, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { isValidObjectId } from "mongoose";
 import { auth } from "@backend/auth";
-import { connectDB } from "@backend/db";
+import { db } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
 import { sessionUser } from "@backend/rbac";
-import Notification from "@backend/models/Notification";
+import { notifications } from "@backend/schema";
 
 const PAGE_SIZE = 20;
 
-// Notifications have been written to the database from four different routes since day
-// one, but nothing ever read them back -- there was no endpoint and no UI, so the
-// collection was write-only. This is the read side.
 export async function GET() {
   return handleRoute(async () => {
     const current = sessionUser(await auth());
     if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    await connectDB();
     // Always scoped to the caller: a notification belongs to exactly one user.
-    const [notifications, unreadCount] = await Promise.all([
-      Notification.find({ user: current.id }).sort({ createdAt: -1 }).limit(PAGE_SIZE).lean(),
-      Notification.countDocuments({ user: current.id, read: false })
-    ]);
+    const rows = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, current.id))
+      .orderBy(desc(notifications.createdAt))
+      .limit(PAGE_SIZE);
 
-    return NextResponse.json({ notifications, unreadCount });
+    const [unread] = await db
+      .select({ value: count() })
+      .from(notifications)
+      .where(and(eq(notifications.userId, current.id), eq(notifications.read, false)));
+
+    return NextResponse.json({
+      // `user` and `_id` are mirrored for the existing client and tests.
+      notifications: rows.map((row) => ({ ...row, _id: row.id, user: row.userId })),
+      unreadCount: unread?.value ?? 0
+    });
   });
 }
 
@@ -37,19 +44,24 @@ export async function POST(request: Request) {
     if (!body.ok) return badJson();
 
     const id = (body.data as { id?: unknown })?.id;
-
-    // A non-ObjectId string would throw a CastError inside updateMany and surface as a 500.
-    if (id !== undefined && (typeof id !== "string" || !isValidObjectId(id))) {
+    if (id !== undefined && typeof id !== "string") {
+      return NextResponse.json({ error: "Invalid notification id" }, { status: 400 });
+    }
+    // IDs are UUIDs now, not ObjectIds. Reject anything that is not one rather than letting
+    // a junk value silently match nothing.
+    if (typeof id === "string" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return NextResponse.json({ error: "Invalid notification id" }, { status: 400 });
     }
 
-    // `user: current.id` is part of the filter, not just the lookup -- without it a caller
-    // could mark someone else's notification as read by guessing an id.
-    const filter: Record<string, unknown> = { user: current.id, read: false };
-    if (typeof id === "string") filter._id = id;
+    // `userId: current.id` is part of the filter, not just the lookup -- without it a caller
+    // could mark someone else's notification read by guessing an id.
+    const where = and(
+      eq(notifications.userId, current.id),
+      eq(notifications.read, false),
+      typeof id === "string" ? eq(notifications.id, id) : undefined
+    );
 
-    await connectDB();
-    const result = await Notification.updateMany(filter, { $set: { read: true } });
-    return NextResponse.json({ ok: true, updated: result.modifiedCount });
+    await db.update(notifications).set({ read: true }).where(where);
+    return NextResponse.json({ ok: true });
   });
 }

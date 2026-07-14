@@ -4,13 +4,14 @@ import {
   DESIGN_STATUSES,
   EP_STATUSES,
   PRIORITIES,
+  RESTRICTED_TEAM_HEAD_ROLE,
   SPONSORSHIP_STATUSES,
   TASK_STATUSES,
   TEAM_HEAD_ROLES,
   TEAM_HEAD_YEAR,
   YEARS
 } from "@shared/constants";
-import { isNitkkrEmail } from "./rbac";
+import { isNitkkrEmail, isSecretaryEmail } from "./rbac";
 
 // Public self-registration.
 //
@@ -55,6 +56,17 @@ export const registerSchema = baseAccountSchema
         code: z.ZodIssueCode.custom,
         path: ["teamHeadRole"],
         message: "Only 4th years can hold a team head role"
+      });
+    }
+
+    // "Secretary" is a restricted label: it is offered in the dropdown, but only an email on
+    // the AUTHORIZED_SECRETARIES allowlist may actually claim it. Without this check any 4th
+    // year could present themselves to the club as a Secretary on the dashboard.
+    if (data.teamHeadRole === RESTRICTED_TEAM_HEAD_ROLE && !isSecretaryEmail(data.email)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["teamHeadRole"],
+        message: "Only an authorized secretary can select the Secretary role"
       });
     }
   });

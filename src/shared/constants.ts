@@ -8,6 +8,7 @@ export const DEPARTMENTS = [
   "Content Team"
 ] as const;
 export const TEAM_HEAD_ROLES = [
+  "Secretary",
   "EP Head",
   "Sponsorship Head",
   "Hospitality Head",
@@ -16,6 +17,12 @@ export const TEAM_HEAD_ROLES = [
   "Content Head",
   "None"
 ] as const;
+
+// "Secretary" is a restricted label. It is shown in the registration dropdown, but the
+// server only accepts it from an email on the AUTHORIZED_SECRETARIES allowlist -- otherwise
+// any 4th year could label themselves Secretary to the rest of the club. (It grants no
+// admin powers on its own either way; role=secretary comes from the allowlist alone.)
+export const RESTRICTED_TEAM_HEAD_ROLE = "Secretary";
 
 // The real roles, without the "None" sentinel. A 4th year must choose one of these at
 // registration; every other year is never shown the field.

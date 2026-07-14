@@ -61,9 +61,26 @@ export default function RegisterPage() {
       setMessage("✓ Account created successfully! Redirecting to login...");
       setTimeout(() => router.push("/login/member"), 2000);
     } else {
-      const error = await response.json();
-      setMessage(error.error || "Registration failed. Please try again.");
+      const body = await response.json().catch(() => null);
+      setMessage(readError(body));
     }
+  }
+
+  // A validation failure returns Zod's flattened shape ({ fieldErrors, formErrors }), not a
+  // string. Rendering that object directly showed the user nothing useful -- pull the actual
+  // message out, e.g. "Only an authorized secretary can select the Secretary role".
+  function readError(body: any): string {
+    const error = body?.error;
+    if (typeof error === "string") return error;
+
+    const fieldErrors = error?.fieldErrors as Record<string, string[]> | undefined;
+    const firstField = fieldErrors && Object.values(fieldErrors).flat().filter(Boolean)[0];
+    if (firstField) return firstField;
+
+    const formError = error?.formErrors?.[0];
+    if (formError) return formError;
+
+    return "Registration failed. Please check your details and try again.";
   }
 
   function toggleDept(dept: string) {

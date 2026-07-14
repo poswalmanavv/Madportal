@@ -317,6 +317,60 @@ async function main() {
   const juniorDoc = await db.collection("users").findOne({ email: `junior.${stamp}@nitkkr.ac.in` });
   check("...and no account was created for them", !juniorDoc);
 
+  // "Secretary" is offered in the dropdown but is a restricted label: only an email on the
+  // AUTHORIZED_SECRETARIES allowlist may claim it. Otherwise any 4th year could present
+  // themselves to the club as a Secretary.
+  const fakeSecretaryEmail = `fakesec.${stamp}@nitkkr.ac.in`;
+  const fakeSecretary = await anon.post("/api/auth/register", {
+    name: "Fake Secretary",
+    email: fakeSecretaryEmail,
+    password: "FakeSecPass@123",
+    year: "4th Year",
+    departments: ["Media Team"],
+    teamHeadRole: "Secretary"
+  });
+  check(
+    "A non-allowlisted 4th year CANNOT claim the Secretary role (400)",
+    fakeSecretary.status === 400,
+    `got ${fakeSecretary.status}`
+  );
+
+  const fakeSecretaryDoc = await db.collection("users").findOne({ email: fakeSecretaryEmail });
+  check("...and no account was created for them", !fakeSecretaryDoc);
+
+  // The positive case: an allowlisted secretary CAN pick it. This is the real signup flow --
+  // the seed already created this account, so drop it first and register it the way a human
+  // would on the live site.
+  const realSecretaryEmail = (process.env.AUTHORIZED_SECRETARIES ?? "").split(",").map((e) => e.trim())[3];
+  await db.collection("users").deleteOne({ email: realSecretaryEmail });
+
+  const realSecretaryRegister = await anon.post("/api/auth/register", {
+    name: "Real Secretary",
+    email: realSecretaryEmail,
+    password: "RealSecPass@123",
+    year: "4th Year",
+    departments: ["EP Team"],
+    teamHeadRole: "Secretary"
+  });
+  check(
+    `An allowlisted secretary (${realSecretaryEmail}) CAN pick the Secretary role (201)`,
+    realSecretaryRegister.status === 201,
+    `got ${realSecretaryRegister.status}`
+  );
+
+  const realSecretaryDoc = await db.collection("users").findOne({ email: realSecretaryEmail });
+  check("...the Secretary label is stored", realSecretaryDoc?.teamHeadRole === "Secretary", `stored ${realSecretaryDoc?.teamHeadRole}`);
+  check("...and they are granted role=secretary from the allowlist", realSecretaryDoc?.role === "secretary", `stored ${realSecretaryDoc?.role}`);
+
+  const realSecretarySession = new Session();
+  const realSecretaryLoggedIn = await realSecretarySession.login(
+    realSecretaryEmail,
+    "RealSecPass@123",
+    "4th Year",
+    "admin"
+  );
+  check("...and can sign in through the ADMIN portal with their chosen password", realSecretaryLoggedIn);
+
   // ACCEPTED RISK, by product decision: a 4th year's self-declared role takes effect on
   // signup, so registering makes you a team lead. There is no email verification, so this
   // is reachable by anyone who types an @nitkkr.ac.in address. These checks pin that
@@ -765,6 +819,9 @@ async function main() {
   // ------------------------------------------------------------------------------- cleanup
   await db.collection("users").deleteMany({ email: { $regex: `\\.${stamp}` } });
   await db.collection("users").deleteMany({ email: newMemberEmail });
+  // Registered during the Secretary-role test with a chosen password, so `purge:demo` (which
+  // only catches seed-default passwords) would not clean it up. Remove it here.
+  await db.collection("users").deleteMany({ email: realSecretaryEmail });
   await db.collection("epentries").deleteMany({ epName: `E2E Partnership ${stamp}` });
   await db.collection("tasks").deleteMany({ title: { $in: [`E2E task ${stamp}`, `Lead task ${stamp}`] } });
   await db.collection("designrequests").deleteMany({ designTitle: `E2E Poster ${stamp}` });

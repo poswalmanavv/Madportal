@@ -10,7 +10,9 @@ import { isSecretaryEmail } from "@backend/rbac";
 import { users } from "@backend/schema";
 import { registerSchema } from "@backend/validators";
 
-const REGISTER_MAX = 5;
+// Per IP, per hour. Kept low enough to throttle spam signups, but not so low that a group
+// of members registering from the same campus network locks each other out -- five was.
+const REGISTER_MAX = 10;
 const REGISTER_WINDOW_MS = 60 * 60 * 1000;
 
 export async function POST(request: Request) {

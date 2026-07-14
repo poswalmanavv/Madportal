@@ -52,6 +52,19 @@ async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set. Add it to .env.local.");
 
+  // This script DELETES accounts. If DATABASE_URL ever points at the live Turso database --
+  // which happens the moment someone edits .env.local to debug production -- an ordinary
+  // `pnpm purge:demo --confirm` would delete real members. Refuse unless the operator says
+  // so explicitly. (`pnpm seed` has the same guard; this one did not, and that was a hole.)
+  const isLocal = url.startsWith("file:");
+  if (!isLocal && process.env.PURGE_CONFIRM !== "yes") {
+    console.error("\nRefusing to run against a REMOTE database.");
+    console.error(`DATABASE_URL is not a local file: ${url.split("?")[0]}\n`);
+    console.error("This script deletes accounts. If you really mean to run it against the live");
+    console.error("database, re-run with PURGE_CONFIRM=yes.\n");
+    process.exit(1);
+  }
+
   const client = createClient(
     url.startsWith("file:") ? { url } : { url, authToken: process.env.DATABASE_AUTH_TOKEN }
   );

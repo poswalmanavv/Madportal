@@ -3,16 +3,37 @@ import { db, newId } from "./db";
 import { notifications, performanceLogs, userDepartments, users } from "./schema";
 
 /**
- * Shared read helpers.
+ * Shared user reads.
  *
- * A user's departments live in their own table (user_departments), so almost every read of
- * a user needs them stitched back on to produce the `departments: string[]` shape the rest
- * of the app already expects. These helpers keep that join in one place instead of spread
- * across sixteen routes.
+ * PERFORMANCE: every query here is a network round trip to Turso, and the database may be a
+ * long way from the function running this code. Round trips dominate the response time, so
+ * these helpers fetch a user AND their departments in ONE query (a LEFT JOIN) rather than
+ * two. It used to be two, which doubled the cost of every authenticated request -- the JWT
+ * callback re-reads the current user on every single request.
+ *
+ * Rule of thumb when adding code here: count the awaits. Each one is ~a round trip.
  */
 
 export type UserRow = typeof users.$inferSelect;
 export type UserWithDepartments = Omit<UserRow, "passwordHash"> & { departments: string[] };
+
+/** Collapses joined rows (one per user x department) back into one object per user. */
+function groupRows(rows: { user: UserRow; department: string | null }[]): UserWithDepartments[] {
+  const byId = new Map<string, UserWithDepartments>();
+
+  for (const row of rows) {
+    let entry = byId.get(row.user.id);
+    if (!entry) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { passwordHash, ...safe } = row.user;
+      entry = { ...safe, departments: [] };
+      byId.set(row.user.id, entry);
+    }
+    if (row.department) entry.departments.push(row.department);
+  }
+
+  return [...byId.values()];
+}
 
 export async function departmentsFor(userIds: string[]): Promise<Map<string, string[]>> {
   const byUser = new Map<string, string[]>();
@@ -27,50 +48,93 @@ export async function departmentsFor(userIds: string[]): Promise<Map<string, str
   return byUser;
 }
 
-function withoutPasswordHash(user: UserRow, departments: string[]): UserWithDepartments {
-  // Never let the bcrypt hash escape into a response. Callers that genuinely need it (login,
-  // change-password) read the raw row themselves.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { passwordHash, ...safe } = user;
-  return { ...safe, departments };
-}
-
+/** One round trip: the user and their departments together. */
 export async function getUserById(id: string): Promise<UserWithDepartments | null> {
-  const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-  if (!user) return null;
-  const departments = (await departmentsFor([user.id])).get(user.id) ?? [];
-  return withoutPasswordHash(user, departments);
+  const rows = await db
+    .select({ user: users, department: userDepartments.department })
+    .from(users)
+    .leftJoin(userDepartments, eq(userDepartments.userId, users.id))
+    .where(eq(users.id, id));
+
+  return groupRows(rows)[0] ?? null;
 }
 
-/** Includes the password hash. Only for the credentials provider and change-password. */
-export async function getUserRowByEmail(email: string): Promise<UserRow | null> {
-  const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
-  return user ?? null;
+/**
+ * One round trip. Returns the raw row (password hash included) AND the departments, which is
+ * exactly what the JWT callback needs on every authenticated request.
+ */
+export async function getUserRowWithDepartments(
+  id: string
+): Promise<{ user: UserRow; departments: string[] } | null> {
+  const rows = await db
+    .select({ user: users, department: userDepartments.department })
+    .from(users)
+    .leftJoin(userDepartments, eq(userDepartments.userId, users.id))
+    .where(eq(users.id, id));
+
+  if (!rows.length) return null;
+  const departments = rows.map((row) => row.department).filter((d): d is string => Boolean(d));
+  return { user: rows[0].user, departments };
 }
 
+export async function getUserRowWithDepartmentsByEmail(
+  email: string
+): Promise<{ user: UserRow; departments: string[] } | null> {
+  const rows = await db
+    .select({ user: users, department: userDepartments.department })
+    .from(users)
+    .leftJoin(userDepartments, eq(userDepartments.userId, users.id))
+    .where(eq(users.email, email.toLowerCase()));
+
+  if (!rows.length) return null;
+  const departments = rows.map((row) => row.department).filter((d): d is string => Boolean(d));
+  return { user: rows[0].user, departments };
+}
+
+/** Includes the password hash. Only for change-password. */
 export async function getUserRowById(id: string): Promise<UserRow | null> {
   const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return user ?? null;
 }
 
+/** One round trip for every user plus their departments. */
 export async function listUsers(options: { activeOnly?: boolean } = {}): Promise<UserWithDepartments[]> {
-  const rows = options.activeOnly
-    ? await db.select().from(users).where(eq(users.active, true))
-    : await db.select().from(users);
+  const base = db
+    .select({ user: users, department: userDepartments.department })
+    .from(users)
+    .leftJoin(userDepartments, eq(userDepartments.userId, users.id));
 
-  const byUser = await departmentsFor(rows.map((row) => row.id));
-  return rows.map((row) => withoutPasswordHash(row, byUser.get(row.id) ?? []));
+  const rows = options.activeOnly ? await base.where(eq(users.active, true)) : await base;
+  return groupRows(rows);
 }
 
 export async function setUserDepartments(userId: string, departments: string[]) {
-  await db.delete(userDepartments).where(eq(userDepartments.userId, userId));
-  if (departments.length) {
-    await db.insert(userDepartments).values(departments.map((department) => ({ userId, department })));
-  }
+  // Two statements, one round trip.
+  const statements = [
+    db.delete(userDepartments).where(eq(userDepartments.userId, userId)),
+    ...(departments.length
+      ? [db.insert(userDepartments).values(departments.map((department) => ({ userId, department })))]
+      : [])
+  ] as const;
+
+  await db.batch(statements as never);
 }
 
 export async function notify(userId: string, title: string, message: string, type: string) {
   await db.insert(notifications).values({ id: newId(), userId, title, message, type });
+}
+
+/** One round trip for many recipients, instead of one per recipient. */
+export async function notifyMany(
+  userIds: string[],
+  title: string,
+  message: string,
+  type: string
+) {
+  if (!userIds.length) return;
+  await db
+    .insert(notifications)
+    .values(userIds.map((userId) => ({ id: newId(), userId, title, message, type })));
 }
 
 export async function logPerformance(

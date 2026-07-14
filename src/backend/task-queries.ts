@@ -3,66 +3,101 @@ import { db } from "./db";
 import { taskAssignees, tasks, users } from "./schema";
 
 /**
- * Tasks with their assignees stitched back on.
+ * Tasks with their assignees.
  *
- * assignedTo used to be an array embedded in the task document. It is now the
- * task_assignees join table, so "tasks assigned to me" is an indexed lookup rather than
- * loading every task and filtering in memory.
+ * PERFORMANCE: these are single LEFT JOINs, not "fetch tasks, then fetch assignees". Each
+ * extra query is a network round trip to Turso, and round trips dominate response time when
+ * the database is not next to the function.
  */
 
 export type TaskRow = typeof tasks.$inferSelect;
 export type TaskAssignee = { _id: string; id: string; name: string; email: string; year: string };
 export type TaskWithAssignees = TaskRow & { _id: string; assignedTo: TaskAssignee[] };
 
-async function attachAssignees(rows: TaskRow[]): Promise<TaskWithAssignees[]> {
-  if (!rows.length) return [];
+type JoinedRow = {
+  task: TaskRow;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  assigneeYear: string | null;
+};
 
-  const links = await db
-    .select({
-      taskId: taskAssignees.taskId,
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      year: users.year
-    })
-    .from(taskAssignees)
-    .innerJoin(users, eq(users.id, taskAssignees.userId))
-    .where(inArray(taskAssignees.taskId, rows.map((row) => row.id)));
+const selection = {
+  task: tasks,
+  assigneeId: users.id,
+  assigneeName: users.name,
+  assigneeEmail: users.email,
+  assigneeYear: users.year
+};
 
-  const byTask = new Map<string, TaskAssignee[]>();
-  for (const link of links) {
-    const list = byTask.get(link.taskId) ?? [];
-    list.push({ _id: link.id, id: link.id, name: link.name, email: link.email, year: link.year });
-    byTask.set(link.taskId, list);
+/** Collapses joined rows (one per task x assignee) back into one object per task. */
+function groupRows(rows: JoinedRow[]): TaskWithAssignees[] {
+  const byId = new Map<string, TaskWithAssignees>();
+
+  for (const row of rows) {
+    let entry = byId.get(row.task.id);
+    if (!entry) {
+      // `_id` is mirrored alongside `id` because the dashboard and the tests key off it.
+      entry = { ...row.task, _id: row.task.id, assignedTo: [] };
+      byId.set(row.task.id, entry);
+    }
+    if (row.assigneeId) {
+      entry.assignedTo.push({
+        _id: row.assigneeId,
+        id: row.assigneeId,
+        name: row.assigneeName ?? "",
+        email: row.assigneeEmail ?? "",
+        year: row.assigneeYear ?? ""
+      });
+    }
   }
 
-  // `_id` is mirrored alongside `id` because the dashboard and the tests still key off it.
-  return rows.map((row) => ({ ...row, _id: row.id, assignedTo: byTask.get(row.id) ?? [] }));
+  return [...byId.values()];
 }
 
-/** Every task, newest deadline first. */
+/** Every task with its assignees. One round trip. */
 export async function listAllTasks(): Promise<TaskWithAssignees[]> {
-  const rows = await db.select().from(tasks).orderBy(asc(tasks.deadline));
-  return attachAssignees(rows);
-}
-
-/** Only the tasks assigned to one member. */
-export async function listTasksForAssignee(userId: string): Promise<TaskWithAssignees[]> {
   const rows = await db
-    .select({ task: tasks })
+    .select(selection)
     .from(tasks)
-    .innerJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
-    .where(eq(taskAssignees.userId, userId))
+    .leftJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+    .leftJoin(users, eq(users.id, taskAssignees.userId))
     .orderBy(asc(tasks.deadline));
 
-  return attachAssignees(rows.map((row) => row.task));
+  return groupRows(rows as JoinedRow[]);
+}
+
+/**
+ * Tasks assigned to one member -- including ALL of each task's assignees, not just this one.
+ * The subquery picks the task ids; the joins then pull every assignee for those tasks. Still
+ * a single round trip.
+ */
+export async function listTasksForAssignee(userId: string): Promise<TaskWithAssignees[]> {
+  const myTaskIds = db
+    .select({ taskId: taskAssignees.taskId })
+    .from(taskAssignees)
+    .where(eq(taskAssignees.userId, userId));
+
+  const rows = await db
+    .select(selection)
+    .from(tasks)
+    .leftJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+    .leftJoin(users, eq(users.id, taskAssignees.userId))
+    .where(inArray(tasks.id, myTaskIds))
+    .orderBy(asc(tasks.deadline));
+
+  return groupRows(rows as JoinedRow[]);
 }
 
 export async function getTaskById(id: string): Promise<TaskWithAssignees | null> {
-  const [row] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-  if (!row) return null;
-  const [withAssignees] = await attachAssignees([row]);
-  return withAssignees;
+  const rows = await db
+    .select(selection)
+    .from(tasks)
+    .leftJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+    .leftJoin(users, eq(users.id, taskAssignees.userId))
+    .where(eq(tasks.id, id));
+
+  return groupRows(rows as JoinedRow[])[0] ?? null;
 }
 
 export async function assigneeIdsFor(taskId: string): Promise<string[]> {

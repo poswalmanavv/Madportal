@@ -146,6 +146,16 @@ const BASE_URL = process.env.BASE_URL ?? "http://localhost:3002";
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "Password@123";
 const DATABASE_URL = process.env.DATABASE_URL!;
 
+// This suite CREATES and DELETES accounts, tasks and entries. Pointed at the live Turso
+// database it would corrupt real data. Only a local SQLite file is ever acceptable.
+if (!DATABASE_URL?.startsWith("file:")) {
+  console.error("\nRefusing to run the test suite against a non-local database.");
+  console.error(`DATABASE_URL = ${String(DATABASE_URL).split("?")[0]}\n`);
+  console.error("These tests create and delete rows. Point DATABASE_URL at a local SQLite file");
+  console.error("(file:./data/mad-club.db) in .env.local and try again.\n");
+  process.exit(1);
+}
+
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];

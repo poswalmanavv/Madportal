@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
 import { db, newId } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
-import { logPerformance, notify } from "@backend/queries";
+import { logPerformance, notifyMany } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
 import { taskAssignees, tasks, taskTimeline } from "@backend/schema";
 import { listAllTasks, listTasksForAssignee } from "@backend/task-queries";
@@ -59,9 +59,13 @@ export async function POST(request: Request) {
       comment: payload.data.remarks ?? "Task created"
     });
 
-    for (const userId of payload.data.assignedTo) {
-      await notify(userId, "New task assigned", `${current.name} assigned: ${payload.data.title}`, "task");
-    }
+    // One insert for every recipient, rather than one round trip per assignee.
+    await notifyMany(
+      payload.data.assignedTo,
+      "New task assigned",
+      `${current.name} assigned: ${payload.data.title}`,
+      "task"
+    );
     await logPerformance(current.id, "task", "created task", id);
 
     return NextResponse.json({ id, _id: id, ...payload.data, status: "Pending", progress: 0 }, { status: 201 });

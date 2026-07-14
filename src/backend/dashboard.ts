@@ -15,36 +15,53 @@ import { listUsers } from "./queries";
 export async function buildDashboard(current: AppUser) {
   const leader = isLeader(current);
 
-  const allUsers = await listUsers({ activeOnly: true });
+  // PERFORMANCE: these are independent, so they go over the wire as ONE batch -- a single
+  // round trip to Turso instead of five sequential ones. Promise.all would still have sent
+  // five separate HTTP requests; batch() sends one. When the database is far from the
+  // function, this is the difference between a snappy dashboard and a multi-second one.
+  const epQuery = leader
+    ? db.select().from(epEntries).orderBy(desc(epEntries.date))
+    : db.select().from(epEntries).where(eq(epEntries.createdBy, current.id)).orderBy(desc(epEntries.date));
+
+  const sponsorQuery = leader
+    ? db.select().from(sponsorshipEntries).orderBy(desc(sponsorshipEntries.dateContacted))
+    : db
+        .select()
+        .from(sponsorshipEntries)
+        .where(eq(sponsorshipEntries.createdBy, current.id))
+        .orderBy(desc(sponsorshipEntries.dateContacted));
+
+  const designSelection = {
+    request: designRequests,
+    name: users.name,
+    email: users.email,
+    id: users.id
+  };
+  const designQuery = leader
+    ? db
+        .select(designSelection)
+        .from(designRequests)
+        .innerJoin(users, eq(users.id, designRequests.assignedDesigner))
+        .orderBy(asc(designRequests.deadline))
+    : db
+        .select(designSelection)
+        .from(designRequests)
+        .innerJoin(users, eq(users.id, designRequests.assignedDesigner))
+        .where(eq(designRequests.assignedDesigner, current.id))
+        .orderBy(asc(designRequests.deadline));
+
+  const [epRows, sponsorRows, designRows] = await db.batch([epQuery, sponsorQuery, designQuery]);
+
+  // These two each need their joined rows regrouped in JS, so they stay separate calls --
+  // but each is itself a single round trip (one LEFT JOIN).
+  const [allUsers, tasks] = await Promise.all([
+    listUsers({ activeOnly: true }),
+    leader ? listAllTasks() : listTasksForAssignee(current.id)
+  ]);
+
   // Performance visibility: a secretary sees the whole club, a leader sees only members who
   // share a team with them, everyone else sees only themselves.
   const visibleUsers = allUsers.filter((user) => canViewMember(current, user as never));
-
-  const [tasks, epRows, sponsorRows, designRows] = await Promise.all([
-    leader ? listAllTasks() : listTasksForAssignee(current.id),
-    leader
-      ? db.select().from(epEntries).orderBy(desc(epEntries.date))
-      : db.select().from(epEntries).where(eq(epEntries.createdBy, current.id)).orderBy(desc(epEntries.date)),
-    leader
-      ? db.select().from(sponsorshipEntries).orderBy(desc(sponsorshipEntries.dateContacted))
-      : db
-          .select()
-          .from(sponsorshipEntries)
-          .where(eq(sponsorshipEntries.createdBy, current.id))
-          .orderBy(desc(sponsorshipEntries.dateContacted)),
-    leader
-      ? db
-          .select({ request: designRequests, name: users.name, email: users.email, id: users.id })
-          .from(designRequests)
-          .innerJoin(users, eq(users.id, designRequests.assignedDesigner))
-          .orderBy(asc(designRequests.deadline))
-      : db
-          .select({ request: designRequests, name: users.name, email: users.email, id: users.id })
-          .from(designRequests)
-          .innerJoin(users, eq(users.id, designRequests.assignedDesigner))
-          .where(eq(designRequests.assignedDesigner, current.id))
-          .orderBy(asc(designRequests.deadline))
-  ]);
 
   const epList = epRows.map((row) => ({ ...row, _id: row.id }));
   const sponsorshipList = sponsorRows.map((row) => ({ ...row, _id: row.id }));

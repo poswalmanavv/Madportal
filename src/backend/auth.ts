@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { departmentsFor, getUserRowByEmail, getUserRowById } from "./queries";
+import { getUserRowWithDepartments, getUserRowWithDepartmentsByEmail } from "./queries";
 import { isNitkkrEmail, isSecretaryEmail } from "./rbac";
 import { clientKey, rateLimit, sweepExpired } from "./rate-limit";
 
@@ -44,16 +44,17 @@ export const authConfig = {
         if (!isNitkkrEmail(email)) return null;
         if (portal === "admin" && !isSecretaryEmail(email)) return null;
 
-        const user = await getUserRowByEmail(email);
-        if (!user) return null;
+        // One round trip: the user and their departments together.
+        const found = await getUserRowWithDepartmentsByEmail(email);
+        if (!found) return null;
+        const { user, departments } = found;
+
         if (!user.active) return null; // deactivated members cannot sign in
         if (portal === "member" && user.year !== year) return null;
         if (portal === "admin" && user.role !== "secretary") return null;
 
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid) return null;
-
-        const departments = (await departmentsFor([user.id])).get(user.id) ?? [];
 
         return {
           id: user.id,
@@ -81,18 +82,20 @@ export const authConfig = {
       // demoting a member would have no effect until it expired.
       if (!token.id) return token;
 
-      const fresh = await getUserRowById(String(token.id));
+      // ONE round trip, not two. This callback runs on every authenticated request, so its
+      // cost is paid by every page load and every API call -- it was the single most
+      // expensive thing in the app when the database is far from the function.
+      const found = await getUserRowWithDepartments(String(token.id));
 
       // Deleted or deactivated -> drop the token, which signs the user out.
-      if (!fresh || !fresh.active) return null;
+      if (!found || !found.user.active) return null;
+      const { user: fresh, departments } = found;
 
       // A password change revokes every session issued before it.
       const issuedAt = typeof token.iat === "number" ? token.iat * 1000 : 0;
       if (fresh.passwordChangedAt && issuedAt && new Date(fresh.passwordChangedAt).getTime() > issuedAt) {
         return null;
       }
-
-      const departments = (await departmentsFor([fresh.id])).get(fresh.id) ?? [];
 
       token.role = fresh.role as never;
       token.year = fresh.year as never;

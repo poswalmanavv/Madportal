@@ -1,26 +1,33 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
-import { connectDB } from "@/lib/db";
-import { DashboardClient } from "@/components/DashboardClient";
-import EPEntry from "@/models/EPEntry";
-import SponsorshipEntry from "@/models/SponsorshipEntry";
-import Task from "@/models/Task";
-import User from "@/models/User";
+import { auth } from "@backend/auth";
+import { connectDB } from "@backend/db";
+import { canViewMember, isLeader, sessionUser } from "@backend/rbac";
+import { DashboardClient } from "@frontend/components/DashboardClient";
+import DesignRequest from "@backend/models/DesignRequest";
+import EPEntry from "@backend/models/EPEntry";
+import SponsorshipEntry from "@backend/models/SponsorshipEntry";
+import Task from "@backend/models/Task";
+import User from "@backend/models/User";
 
 async function getDashboardData() {
   const session = await auth();
   if (!session?.user) redirect("/login/member");
   await connectDB();
 
-  const current = session.user;
-  const isLeader = current.role === "secretary" || current.year === "4th Year";
+  const current = sessionUser(session)!;
+  // Leadership comes from secretary/teamHeadRole/canManageTeam, never from the
+  // self-declared `year` -- see src/backend/rbac.ts.
+  const leader = isLeader(current);
   const users = await User.find({ active: true }).lean();
-  const tasks = await Task.find(isLeader ? {} : { assignedTo: current.id }).populate("assignedTo", "name email year departments").lean();
-  const epEntries = await EPEntry.find(isLeader ? {} : { createdBy: current.id }).lean();
-  const sponsorships = await SponsorshipEntry.find(isLeader ? {} : { createdBy: current.id }).lean();
+  const tasks = await Task.find(leader ? {} : { assignedTo: current.id }).populate("assignedTo", "name email year departments").lean();
+  const epEntries = await EPEntry.find(leader ? {} : { createdBy: current.id }).lean();
+  const sponsorships = await SponsorshipEntry.find(leader ? {} : { createdBy: current.id }).lean();
+  const designRequests = await DesignRequest.find(leader ? {} : { assignedDesigner: current.id })
+    .populate("assignedDesigner", "name email")
+    .lean();
 
   const memberStats = users
-    .filter((member) => current.role === "secretary" || String(member._id) === current.id || (current.year === "4th Year" && member.year !== "4th Year"))
+    .filter((member) => canViewMember(current, member as never))
     .map((member) => {
       const assigned = tasks.filter((task) => task.assignedTo?.some((assignee: any) => String(assignee._id ?? assignee) === String(member._id)));
       const completed = assigned.filter((task) => task.status === "Completed");
@@ -59,6 +66,7 @@ async function getDashboardData() {
     tasks,
     epEntries,
     sponsorships,
+    designRequests,
     charts: {
       monthlyContributions: Object.entries(monthly).map(([month, count]) => ({ month, count })),
       yearPerformance: ["1st Year", "2nd Year", "3rd Year", "4th Year"].map((year) => ({

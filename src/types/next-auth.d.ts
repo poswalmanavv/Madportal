@@ -1,5 +1,5 @@
 import type { DefaultSession } from "next-auth";
-import type { DepartmentName, MemberYear, TeamHeadRole } from "@/lib/constants";
+import type { DepartmentName, MemberYear, TeamHeadRole } from "@shared/constants";
 
 declare module "next-auth" {
   interface Session {

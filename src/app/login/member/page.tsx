@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { AuthForm } from "@/components/AuthForm";
+import { AuthForm } from "@frontend/components/AuthForm";
 
 export default function MemberLogin() {
   return (

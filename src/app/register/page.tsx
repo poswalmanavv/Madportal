@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { DEPARTMENTS, TEAM_HEAD_ROLES, YEARS } from "@/lib/constants";
-import { AlertCircle, CheckCircle } from "lucide-react";
+import { DEPARTMENTS, SELECTABLE_TEAM_HEAD_ROLES, TEAM_HEAD_YEAR, YEARS } from "@shared/constants";
+import { AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,6 +12,12 @@ export default function RegisterPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
+  const [year, setYear] = useState<string>(YEARS[0]);
+
+  // Only 4th years hold team head roles, so the card is shown to them alone -- and when it
+  // is shown, it is mandatory. The server enforces both halves of this rule independently
+  // (see registerSchema); hiding the field is presentation, not a security control.
+  const isFinalYear = year === TEAM_HEAD_YEAR;
 
   async function onSubmit(formData: FormData) {
     setLoading(true);
@@ -26,6 +32,13 @@ export default function RegisterPage() {
       return;
     }
 
+    const teamHeadRole = formData.get("teamHeadRole");
+    if (isFinalYear && !teamHeadRole) {
+      setMessage("Select your team head role.");
+      setLoading(false);
+      return;
+    }
+
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -34,7 +47,9 @@ export default function RegisterPage() {
         email: formData.get("email"),
         password: formData.get("password"),
         year: formData.get("year"),
-        teamHeadRole: formData.get("teamHeadRole"),
+        // Omitted entirely for non-final years: the server rejects the field outright from
+        // anyone who is not a 4th year.
+        ...(isFinalYear ? { teamHeadRole } : {}),
         departments
       })
     });
@@ -107,26 +122,50 @@ export default function RegisterPage() {
               <select
                 name="year"
                 required
+                value={year}
+                onChange={(event) => setYear(event.target.value)}
                 className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"
               >
-                {YEARS.map((year) => (
-                  <option key={year}>{year}</option>
+                {YEARS.map((option) => (
+                  <option key={option}>{option}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium">Team Head Role (Optional)</label>
-            <select
-              name="teamHeadRole"
-              className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"
-            >
-              {TEAM_HEAD_ROLES.map((role) => (
-                <option key={role}>{role}</option>
-              ))}
-            </select>
-          </div>
+          {/* Shown to 4th years only, and mandatory when shown. */}
+          {isFinalYear && (
+            <div className="rounded-lg border-2 border-brand/40 bg-brand/5 p-4 dark:bg-brand/10">
+              <div className="mb-3 flex items-start gap-2">
+                <ShieldCheck size={18} className="mt-0.5 shrink-0 text-brand" />
+                <div>
+                  <h2 className="text-sm font-semibold text-brand">Team Head Role — required for 4th years</h2>
+                  <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                    As a final-year member you lead a team. Your selection grants you team lead access to
+                    tasks, sponsorships and EP records as soon as your account is created.
+                  </p>
+                </div>
+              </div>
+              <label className="mb-1 block text-sm font-medium">
+                Select your team head role <span className="text-red-600">*</span>
+              </label>
+              <select
+                name="teamHeadRole"
+                required
+                defaultValue=""
+                className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 dark:border-neutral-700 dark:bg-neutral-900"
+              >
+                <option value="" disabled>
+                  Choose a role...
+                </option>
+                {SELECTABLE_TEAM_HEAD_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="mb-3 block text-sm font-medium">Select Departments</label>

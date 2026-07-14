@@ -16,6 +16,24 @@ Production-ready full-stack portal for the Managing and Directing Club, NIT Kuru
 - **Responsive Design** - Works on desktop, tablet, and mobile
 - **Dark Mode** - Built-in theme toggle
 
+## 📁 Project Structure
+
+```
+src/
+  backend/    Server only: models, db, auth, rbac, validators, http helpers
+  frontend/   Client only: components and providers
+  shared/     Enums used by both (years, departments, statuses)
+  app/        Routing only -- Next.js resolves pages and API routes from here
+```
+
+Route files (`src/app/**/page.tsx`, `route.ts`) cannot move: Next.js maps URLs to
+filesystem paths. They are kept thin and delegate into `src/backend`.
+
+Import via the aliases — `@backend/*`, `@frontend/*`, `@shared/*` — not relative paths.
+
+- **[docs/BACKEND.md](docs/BACKEND.md)** — API reference, authorization model, sessions, database
+- **[docs/FRONTEND.md](docs/FRONTEND.md)** — pages, components, data flow, styling
+
 ## Tech Stack
 
 - **Frontend**: React 19, Next.js 15, TypeScript, Tailwind CSS
@@ -114,18 +132,56 @@ The portal now includes a **"Save login info"** checkbox that:
 - ✅ Secretary authorization via AUTHORIZED_SECRETARIES env var
 - ✅ Session protection with middleware
 
-## 🧪 Test Accounts
+## 🚀 First run on a clean database
 
-All passwords: **`Password@123`**
+There are **no default accounts and no default passwords.** Nobody is pre-created.
 
-| Email | Role | Department |
-|-------|------|-----------|
-| Any email listed in `AUTHORIZED_SECRETARIES` | Secretary | All |
-| diya@nitkkr.ac.in | EP Head | EP Team |
-| kabir@nitkkr.ac.in | Design Head | Design Team |
-| meera@nitkkr.ac.in | Member | Sponsorship |
-| rohan@nitkkr.ac.in | Member | Media |
-| isha@nitkkr.ac.in | Member | Logistics |
+1. Put the secretaries' emails in `AUTHORIZED_SECRETARIES`.
+2. Each secretary registers at `/register` with that email and a password they choose.
+   The secretary role is granted automatically from the allowlist.
+3. Everyone else registers normally as a member.
+
+`pnpm purge:demo` strips any leftover seeded profile, and any account still using the seed
+default password, from an existing database. Run it dry first (no flag) to see what it
+would remove; add `--confirm` to apply.
+
+## 🧪 Test fixtures (LOCAL DEVELOPMENT ONLY)
+
+`pnpm seed` creates throwaway fixture accounts (diya, kabir, meera, rohan, isha) with the
+password `Password@123`, for local development and the end-to-end suite. It **deletes every
+document** first, and refuses a non-local `MONGODB_URI` unless you pass `SEED_CONFIRM=yes`.
+
+Never run it against production. If you seed a database you intend to use for real, run
+`pnpm purge:demo --confirm` afterwards to remove the fixtures again.
+
+## 🔑 How privileges are granted
+
+| Level | Granted by |
+|---|---|
+| **Secretary** — full access, all teams, member management, CSV export | The `AUTHORIZED_SECRETARIES` allowlist. Never self-assignable. |
+| **Team head** — create/assign tasks, move pipelines, see **their own team's** performance | A 4th year chooses their `teamHeadRole` at registration, and it takes effect immediately. A secretary can also grant `canManageTeam`. |
+| **Member** — own tasks and own records | Default. |
+
+Privileges are never derived from `year` on its own — `isLeader()` in
+[src/backend/rbac.ts](src/backend/rbac.ts) keys off `role`, `teamHeadRole` and
+`canManageTeam`.
+
+> **Security note.** Because a 4th year's self-declared `teamHeadRole` takes effect on
+> signup, and the `@nitkkr.ac.in` check is only a string-suffix test (nobody proves they own
+> the address), **anyone who registers with such an address can obtain team-lead access.**
+> Email verification is the control that closes this and is not yet implemented.
+
+## ✅ Tests
+
+```bash
+pnpm dev        # terminal 1
+pnpm seed       # reset to known fixtures
+pnpm test:e2e   # terminal 2 -- 35 end-to-end API checks
+```
+
+`scripts/e2e-test.ts` signs in through the real NextAuth flow and asserts access control,
+rate limiting, session revocation, and the task/EP write paths. It writes to the database
+in `MONGODB_URI`, so point it at a local Mongo.
 
 ## 📱 Browser Support
 
@@ -213,13 +269,17 @@ For issues or questions, contact:
 
 ## 📝 Environment Variables
 
-Required in `.env.local`:
+Copy `.env.example` to `.env.local` and fill it in:
 ```
 MONGODB_URI=mongodb+srv://...
-NEXTAUTH_SECRET=...
-NEXTAUTH_URL=http://localhost:3000
+AUTH_SECRET=...          # NextAuth v5 name
+NEXTAUTH_SECRET=...      # same value as AUTH_SECRET
+NEXTAUTH_URL=http://localhost:3000   # must be the real origin in production
 AUTHORIZED_SECRETARIES=your-secretary-email-1@nitkkr.ac.in,your-secretary-email-2@nitkkr.ac.in
 ```
+
+Save `.env.local` as UTF-8 **without a BOM** — `node --env-file` misparses a leading BOM
+and silently drops the first variable.
 
 Make sure the MongoDB URI points to the Atlas cluster that hosts this app and that the database name stays `mad-club`, because both the app and the seed script connect to that same database.
 
@@ -229,7 +289,8 @@ This project is for the Managing and Directing Club, NIT Kurukshetra.
 
 ---
 
-**Status**: ✅ Production Ready  
-**Last Updated**: June 25, 2026  
+**Status**: 🟡 Pre-launch — security hardening done and covered by end-to-end tests.
+Before going live you still need: email verification for @nitkkr.ac.in signups, a shared
+(Redis) rate-limit store, and error monitoring. See the launch checklist.  
 **Version**: 1.0.0
 

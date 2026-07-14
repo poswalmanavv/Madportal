@@ -2,12 +2,19 @@
   "name": "mad-club-management-portal",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@10.34.4",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "migrate:content": "tsx scripts/migrate-logistics-to-content.ts",
+    "purge:demo": "tsx scripts/purge-demo-data.ts",
+    "test:e2e": "tsx scripts/e2e-test.ts"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",

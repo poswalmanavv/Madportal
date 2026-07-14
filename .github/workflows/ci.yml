@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # A real MongoDB, so the end-to-end suite exercises the actual data layer rather than
+    # a mock. Health-checked so the app never starts against a database that is not ready.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MONGODB_URI: mongodb://127.0.0.1:27017
+      AUTH_SECRET: ci-secret-not-used-in-production
+      NEXTAUTH_SECRET: ci-secret-not-used-in-production
+      NEXTAUTH_URL: http://localhost:3000
+      AUTHORIZED_SECRETARIES: secretary@nitkkr.ac.in
+      BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Seed the test database
+        run: pnpm seed
+
+      - name: Start the production server
+        run: |
+          pnpm start &
+          # Wait for the health endpoint rather than sleeping a fixed amount: the job
+          # should fail loudly if the app never becomes reachable.
+          for i in $(seq 1 30); do
+            if curl -sf "$BASE_URL/api/health" > /dev/null; then
+              echo "Server is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server did not become healthy in time."
+          exit 1
+
+      - name: End-to-end API tests
+        run: pnpm test:e2e

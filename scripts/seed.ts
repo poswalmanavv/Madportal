@@ -2,17 +2,17 @@ import bcrypt from "bcryptjs";
 import fs from "fs";
 import mongoose from "mongoose";
 import path from "path";
-import { DEPARTMENTS } from "../src/lib/constants";
-import { authorizedSecretaries } from "../src/lib/rbac";
-import Department from "../src/models/Department";
-import EPEntry from "../src/models/EPEntry";
-import SponsorshipEntry from "../src/models/SponsorshipEntry";
-import Task from "../src/models/Task";
-import User from "../src/models/User";
+import { DEPARTMENTS } from "../src/shared/constants";
+import { authorizedSecretaries } from "../src/backend/rbac";
+import Department from "../src/backend/models/Department";
+import EPEntry from "../src/backend/models/EPEntry";
+import SponsorshipEntry from "../src/backend/models/SponsorshipEntry";
+import Task from "../src/backend/models/Task";
+import User from "../src/backend/models/User";
 
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) return;
-  const contents = fs.readFileSync(filePath, "utf8");
+  const contents = fs.readFileSync(filePath, "utf8").replace(/^﻿/, "");
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
@@ -30,8 +30,21 @@ loadEnvFile(path.resolve(process.cwd(), ".env.local"));
 loadEnvFile(path.resolve(process.cwd(), ".env"));
 
 const uri = process.env.MONGODB_URI;
-if (!uri) throw new Error("mongodb+srv://poswalmanavv_db_user:1sc1JfQhxKsgmspo@mad-club.aqsybxp.mongodb.net/?appName=mad-club");
+if (!uri) throw new Error("MONGODB_URI is not set. Add it to .env.local before seeding.");
 const mongoUri = uri;
+
+// This script DELETES every document in the database before re-seeding. Running it
+// against a shared or production cluster is unrecoverable, so a non-local URI has to
+// be confirmed explicitly with SEED_CONFIRM=yes.
+const isLocalDatabase = /@?(localhost|127\.0\.0\.1)(:|\/)/.test(mongoUri);
+if (!isLocalDatabase && process.env.SEED_CONFIRM !== "yes") {
+  throw new Error(
+    "Refusing to wipe a non-local database. MONGODB_URI does not point at localhost.\n" +
+      "If you really mean to erase this cluster, re-run with SEED_CONFIRM=yes."
+  );
+}
+
+const seedPassword = process.env.SEED_PASSWORD ?? "Password@123";
 
 async function main() {
   await mongoose.connect(mongoUri, { dbName: "mad-club" });
@@ -43,7 +56,7 @@ async function main() {
     Department.deleteMany({})
   ]);
 
-  const passwordHash = await bcrypt.hash("Password@123", 12);
+  const passwordHash = await bcrypt.hash(seedPassword, 12);
   const secretaryEmails = authorizedSecretaries();
   const seededSecretaryEmails = secretaryEmails.length > 0 ? secretaryEmails : ["123105128@nitkkr.ac.in"];
   const primarySecretaryEmail = seededSecretaryEmails[0];
@@ -62,7 +75,7 @@ async function main() {
     { name: "Kabir Design Head", email: "kabir@nitkkr.ac.in", passwordHash, year: "4th Year", departments: ["Design Team"], teamHeadRole: "Design Team Head" },
     { name: "Meera Sponsorship", email: "meera@nitkkr.ac.in", passwordHash, year: "3rd Year", departments: ["Sponsorship Team"], teamHeadRole: "None", canManageTeam: true },
     { name: "Rohan Media", email: "rohan@nitkkr.ac.in", passwordHash, year: "2nd Year", departments: ["Media Team"], teamHeadRole: "None" },
-    { name: "Isha Logistics", email: "isha@nitkkr.ac.in", passwordHash, year: "1st Year", departments: ["Logistics Team"], teamHeadRole: "None" }
+    { name: "Isha Content", email: "isha@nitkkr.ac.in", passwordHash, year: "1st Year", departments: ["Content Team"], teamHeadRole: "None" }
   ]);
 
   const byEmail = (email: string) => users.find((user) => user.email === email)!;

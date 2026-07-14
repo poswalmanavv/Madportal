@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { connectDB } from "@/lib/db";
-import { canManageTasks, sessionUser } from "@/lib/rbac";
-import { sponsorshipSchema } from "@/lib/validators";
-import Notification from "@/models/Notification";
-import PerformanceLog from "@/models/PerformanceLog";
-import SponsorshipEntry from "@/models/SponsorshipEntry";
+import { auth } from "@backend/auth";
+import { connectDB } from "@backend/db";
+import { badJson, handleRoute, parseJson } from "@backend/http";
+import { canManageTasks, sessionUser } from "@backend/rbac";
+import { sponsorshipSchema } from "@backend/validators";
+import Notification from "@backend/models/Notification";
+import PerformanceLog from "@backend/models/PerformanceLog";
+import SponsorshipEntry from "@backend/models/SponsorshipEntry";
 
 export async function GET(request: Request) {
+  return handleRoute(async () => {
   const current = sessionUser(await auth());
   if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   await connectDB();
@@ -15,12 +17,16 @@ export async function GET(request: Request) {
   const filter: Record<string, unknown> = canManageTasks(current) ? {} : { createdBy: current.id };
   if (q) filter.$text = { $search: q };
   return NextResponse.json(await SponsorshipEntry.find(filter).sort({ dateContacted: -1 }).lean());
+  });
 }
 
 export async function POST(request: Request) {
+  return handleRoute(async () => {
   const current = sessionUser(await auth());
   if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = sponsorshipSchema.safeParse(await request.json());
+  const body = await parseJson(request);
+  if (!body.ok) return badJson();
+  const payload = sponsorshipSchema.safeParse(body.data);
   if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
   await connectDB();
   const entry = await SponsorshipEntry.create({
@@ -33,4 +39,5 @@ export async function POST(request: Request) {
   await PerformanceLog.create({ user: current.id, type: "sponsorship", action: "created sponsorship entry", referenceId: entry._id, points: 2 });
   await Notification.create({ user: current.id, title: "Sponsorship updated", message: `${payload.data.companyName} was added`, type: "sponsorship" });
   return NextResponse.json(entry, { status: 201 });
+  });
 }

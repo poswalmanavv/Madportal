@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { connectDB } from "@/lib/db";
-import { canViewMember, sessionUser } from "@/lib/rbac";
-import EPEntry from "@/models/EPEntry";
-import SponsorshipEntry from "@/models/SponsorshipEntry";
-import Task from "@/models/Task";
-import User from "@/models/User";
+import { auth } from "@backend/auth";
+import { connectDB } from "@backend/db";
+import { handleRoute } from "@backend/http";
+import { canViewMember, isLeader, sessionUser } from "@backend/rbac";
+import DesignRequest from "@backend/models/DesignRequest";
+import EPEntry from "@backend/models/EPEntry";
+import SponsorshipEntry from "@backend/models/SponsorshipEntry";
+import Task from "@backend/models/Task";
+import User from "@backend/models/User";
 
 function monthName(date: Date) {
   return date.toLocaleString("en", { month: "short" });
 }
 
 export async function GET() {
+  return handleRoute(async () => {
   const current = sessionUser(await auth());
   if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -20,15 +23,21 @@ export async function GET() {
   const visibleUsers = users.filter((user) => canViewMember(current, user as never));
   const visibleIds = visibleUsers.map((user) => String(user._id));
 
-  const taskFilter =
-    current.role === "secretary" || current.year === "4th Year"
-      ? {}
-      : { assignedTo: current.id };
+  // Was `role === "secretary" || year === "4th Year"`, repeated inline three times. Since
+  // `year` is self-declared at signup, that handed the whole org's data to anyone who
+  // registered as a 4th year. isLeader() keys off secretary/teamHeadRole/canManageTeam.
+  const leader = isLeader(current);
+  const scope = leader ? {} : { createdBy: current.id };
 
-  const [tasks, epEntries, sponsorships] = await Promise.all([
-    Task.find(taskFilter).populate("assignedTo", "name email year departments").lean(),
-    EPEntry.find(current.role === "secretary" || current.year === "4th Year" ? {} : { createdBy: current.id }).lean(),
-    SponsorshipEntry.find(current.role === "secretary" || current.year === "4th Year" ? {} : { createdBy: current.id }).lean()
+  const [tasks, epEntries, sponsorships, designRequests] = await Promise.all([
+    Task.find(leader ? {} : { assignedTo: current.id })
+      .populate("assignedTo", "name email year departments")
+      .lean(),
+    EPEntry.find(scope).lean(),
+    SponsorshipEntry.find(scope).lean(),
+    DesignRequest.find(leader ? {} : { assignedDesigner: current.id })
+      .populate("assignedDesigner", "name email")
+      .lean()
   ]);
 
   const memberStats = visibleUsers.map((member) => {
@@ -85,6 +94,7 @@ export async function GET() {
     tasks,
     epEntries,
     sponsorships,
+    designRequests,
     charts: {
       monthlyContributions: Object.entries(monthly).map(([month, count]) => ({ month, count })),
       teamPerformance,
@@ -100,5 +110,6 @@ export async function GET() {
         .sort((a, b) => b.totalTasksCompleted + b.totalEPEntries + b.totalSponsorshipEntries - (a.totalTasksCompleted + a.totalEPEntries + a.totalSponsorshipEntries))
         .slice(0, 5)
     }
+  });
   });
 }

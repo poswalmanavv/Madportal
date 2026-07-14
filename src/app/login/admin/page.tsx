@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Shield, Users, BarChart3 } from "lucide-react";
-import { AuthForm } from "@/components/AuthForm";
+import { AuthForm } from "@frontend/components/AuthForm";
 
 export default function AdminLogin() {
   return (

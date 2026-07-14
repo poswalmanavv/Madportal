@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { connectDB } from "@/lib/db";
-import { canManageTasks, sessionUser } from "@/lib/rbac";
-import { taskUpdateSchema } from "@/lib/validators";
-import Notification from "@/models/Notification";
-import PerformanceLog from "@/models/PerformanceLog";
-import Task from "@/models/Task";
+import { auth } from "@backend/auth";
+import { connectDB } from "@backend/db";
+import { badJson, handleRoute, parseJson } from "@backend/http";
+import { canManageTasks, sessionUser } from "@backend/rbac";
+import { taskUpdateSchema } from "@backend/validators";
+import Notification from "@backend/models/Notification";
+import PerformanceLog from "@backend/models/PerformanceLog";
+import Task from "@backend/models/Task";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return handleRoute(async () => {
   const current = sessionUser(await auth());
   if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = taskUpdateSchema.safeParse(await request.json());
+  const body = await parseJson(request);
+  if (!body.ok) return badJson();
+  const payload = taskUpdateSchema.safeParse(body.data);
   if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
   await connectDB();
@@ -41,4 +45,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   });
 
   return NextResponse.json(task);
+  });
 }

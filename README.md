@@ -264,24 +264,11 @@ pnpm lint             # Run ESLint
 ## 📞 Support
 
 For issues or questions, contact:
-- **Primary**: secretary@nitkkr.ac.in
-- **Backup**: gsec@nitkkr.ac.in
+- **Primary**: 123105128@nitkkr.ac.in
+- **Backup**: Poswalmanavv@gmail.comm
 
-## 📝 Environment Variables
 
-Copy `.env.example` to `.env.local` and fill it in:
 ```
-MONGODB_URI=mongodb+srv://...
-AUTH_SECRET=...          # NextAuth v5 name
-NEXTAUTH_SECRET=...      # same value as AUTH_SECRET
-NEXTAUTH_URL=http://localhost:3000   # must be the real origin in production
-AUTHORIZED_SECRETARIES=your-secretary-email-1@nitkkr.ac.in,your-secretary-email-2@nitkkr.ac.in
-```
-
-Save `.env.local` as UTF-8 **without a BOM** — `node --env-file` misparses a leading BOM
-and silently drops the first variable.
-
-Make sure the MongoDB URI points to the Atlas cluster that hosts this app and that the database name stays `mad-club`, because both the app and the seed script connect to that same database.
 
 ## 📄 License
 

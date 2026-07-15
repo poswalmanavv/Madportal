@@ -1,158 +1,111 @@
 # MAD Club Management Portal
 
-Production-ready full-stack portal for the Managing and Directing Club, NIT Kurukshetra.
+Full-stack operations portal for the Managing and Directing Club, NIT Kurukshetra —
+tasks, event partnerships, sponsorships, design requests, team performance and reports.
+
+Live: **https://maddashboard.netlify.app**
 
 ## ✨ Features
 
-- **User Registration** with @nitkkr.ac.in email validation
-- **Save Login Info** - Remember Me functionality with 30-day session timeout
-- **Role-Based Access Control** - Member, Team Head, Secretary roles
-- **Task Management** - Create, assign, and track task progress
-- **Event Partnership (EP) Tracking** - Manage external partnerships
-- **Sponsorship Pipeline** - Track sponsor outreach and status
-- **Design Request Workflow** - Manage design team deliverables
-- **Analytics & Dashboards** - View performance metrics and reports
-- **CSV Export** - Download data for analysis
-- **Responsive Design** - Works on desktop, tablet, and mobile
-- **Dark Mode** - Built-in theme toggle
+- **Registration** with `@nitkkr.ac.in` email validation (2nd–4th year)
+- **Role-based access** — Member, Team Head, Secretary
+- **Task management** — create, assign (searchable picker), track progress
+- **Event Partnership (EP) tracking** with a status pipeline and history trail
+- **Sponsorship pipeline** — outreach, negotiation, status transitions
+- **Design request workflow** with designer/head separation of duties
+- **Team performance** dashboards and charts, scoped by team
+- **Notifications** — in-app bell for assignments and status changes
+- **CSV / Excel export** for secretaries
+- **Responsive**, with a persisted light / dark / system theme
 
 ## 📁 Project Structure
 
 ```
 src/
-  backend/    Server only: models, db, auth, rbac, validators, http helpers
+  backend/    Server only: db, schema, auth, rbac, validators, queries, http helpers
   frontend/   Client only: components and providers
   shared/     Enums used by both (years, departments, statuses)
-  app/        Routing only -- Next.js resolves pages and API routes from here
+  app/        Routing only — Next.js resolves pages and API routes from here
+drizzle/      Generated SQL migrations (committed; do not hand-edit)
+docs/         BACKEND.md and FRONTEND.md
 ```
 
-Route files (`src/app/**/page.tsx`, `route.ts`) cannot move: Next.js maps URLs to
-filesystem paths. They are kept thin and delegate into `src/backend`.
+Route files (`src/app/**/page.tsx`, `route.ts`) cannot move — Next.js maps URLs to
+filesystem paths. They stay thin and delegate into `src/backend`.
 
 Import via the aliases — `@backend/*`, `@frontend/*`, `@shared/*` — not relative paths.
 
 - **[docs/BACKEND.md](docs/BACKEND.md)** — API reference, authorization model, sessions, database
 - **[docs/FRONTEND.md](docs/FRONTEND.md)** — pages, components, data flow, styling
 
-## Tech Stack
+## 🧱 Tech Stack
 
-- **Frontend**: React 19, Next.js 15, TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes
-- **Database**: MongoDB Atlas with Mongoose
-- **Authentication**: NextAuth.js 5 with JWT
-- **Validation**: Zod schema validation
-- **Security**: bcryptjs for password hashing
+- **Framework**: Next.js 15 (App Router), React 19, TypeScript
+- **Styling**: Tailwind CSS
+- **Database**: SQLite via **libSQL** — a local file in development, **Turso** in production
+- **ORM**: Drizzle
+- **Auth**: NextAuth (Auth.js) v5, JWT sessions
+- **Validation**: Zod
+- **Passwords**: bcryptjs (cost 12)
+- **Hosting**: Netlify (`@netlify/plugin-nextjs`)
 
-## Quick Start
+> **Why SQLite on serverless?** A plain `.db` file cannot persist on Netlify (read-only
+> filesystem, throwaway containers). Turso serves the same SQLite over HTTP, so it
+> persists. Local dev uses a real file; the schema and queries are identical either way.
 
-### Prerequisites
-- Node.js 18+
-- npm or pnpm
-- MongoDB URI (.env.local configured)
+## 🚀 Quick Start (local)
 
-### Setup
+Prerequisites: Node.js 20+, pnpm.
 
-1. **Install dependencies:**
 ```bash
 pnpm install
-# OR
-npm install
+cp .env.example .env.local     # then fill in the values (see below)
+pnpm db:migrate                # create the SQLite tables in data/mad-club.db
+pnpm dev                       # http://localhost:3000
 ```
 
-2. **Start development server:**
-```bash
-pnpm dev
-# OR
-npm run dev
-```
+Optional — load throwaway fixtures for development:
 
-The application runs on: **http://localhost:3000**
-
-### First Time Setup
-
-1. **Seed test data (optional):**
 ```bash
 pnpm seed
-# OR
-npm run seed
 ```
 
-2. **Register a new account:**
-   - Go to http://localhost:3000/register
-   - Use your @nitkkr.ac.in email
-   - Select your department and year
-   - Create account
+## 📝 Environment Variables
 
-3. **Login:**
-   - Member Portal: http://localhost:3000/login/member
-   - Admin Portal: http://localhost:3000/login/admin (secretaries only)
+Set in `.env.local` (see `.env.example`). Save the file as **UTF-8 without a BOM**.
 
-## 🎯 New: Save Login Info Feature
+```
+# Local: a real SQLite file.  Production: a Turso libsql:// URL.
+DATABASE_URL=file:./data/mad-club.db
+DATABASE_AUTH_TOKEN=            # required only for a Turso libsql:// URL
 
-The portal now includes a **"Save login info"** checkbox that:
-- ✓ Auto-fills your email and year on next login
-- ✓ Keeps you signed in for 30 days
-- ✓ Never stores passwords (only email & year)
-- ✓ Device-specific storage (secure)
-- ✓ Easy to clear when unchecked
+# Same value for both. Generate: openssl rand -base64 32
+AUTH_SECRET=...
+NEXTAUTH_SECRET=...
 
-**How to use:**
-1. On login page, check **"Save login info"**
-2. Next time, your email and year will be pre-filled
-3. Just enter your password for quick re-login
+# The real origin in production, no trailing slash.
+NEXTAUTH_URL=http://localhost:3000
 
-## 📝 User Workflows
+# Comma-separated. These emails, and only these, are granted the secretary role.
+AUTHORIZED_SECRETARIES=123105128@nitkkr.ac.in,...
+```
 
-### Creating an Account
-1. Click **"Register"** from homepage
-2. Fill form with @nitkkr.ac.in email
-3. Select department and year
-4. Create account and login
-
-### Managing Tasks (Secretaries/Team Heads)
-1. Go to Dashboard → Tasks
-2. Click **"Create Task"**
-3. Assign to team members
-4. Set priority and deadline
-5. Track progress with status updates
-
-### Admin Features (Secretaries Only)
-- View all members and their stats
-- Create and manage tasks
-- Track sponsorships and EP entries
-- View team analytics
-- Export data to CSV
-
-## 🔐 Security
-
-- ✅ Email validation for @nitkkr.ac.in domain only
-- ✅ Passwords hashed with bcryptjs (cost: 12)
-- ✅ JWT tokens with 30-day expiration
-- ✅ Role-based access control
-- ✅ Secretary authorization via AUTHORIZED_SECRETARIES env var
-- ✅ Session protection with middleware
+The production Turso credentials live in `.env.turso` (gitignored), read only by
+`pnpm db:migrate:turso`. Keep them out of `.env.local` — the seed, purge and test scripts
+all refuse to run against a non-local database, but `.env.local` is the safe default.
 
 ## 🚀 First run on a clean database
 
 There are **no default accounts and no default passwords.** Nobody is pre-created.
 
 1. Put the secretaries' emails in `AUTHORIZED_SECRETARIES`.
-2. Each secretary registers at `/register` with that email and a password they choose.
-   The secretary role is granted automatically from the allowlist.
+2. Each secretary registers at `/register` with that email and a password they choose —
+   the secretary role is granted automatically from the allowlist.
 3. Everyone else registers normally as a member.
 
-`pnpm purge:demo` strips any leftover seeded profile, and any account still using the seed
-default password, from an existing database. Run it dry first (no flag) to see what it
-would remove; add `--confirm` to apply.
-
-## 🧪 Test fixtures (LOCAL DEVELOPMENT ONLY)
-
-`pnpm seed` creates throwaway fixture accounts (diya, kabir, meera, rohan, isha) with the
-password `Password@123`, for local development and the end-to-end suite. It **deletes every
-document** first, and refuses a non-local `MONGODB_URI` unless you pass `SEED_CONFIRM=yes`.
-
-Never run it against production. If you seed a database you intend to use for real, run
-`pnpm purge:demo --confirm` afterwards to remove the fixtures again.
+`pnpm purge:demo` strips any leftover seeded profile (and any account still using the seed
+default password) from a database. Run it dry first (no flag) to preview; add `--confirm`
+to apply.
 
 ## 🔑 How privileges are granted
 
@@ -166,118 +119,91 @@ Privileges are never derived from `year` on its own — `isLeader()` in
 [src/backend/rbac.ts](src/backend/rbac.ts) keys off `role`, `teamHeadRole` and
 `canManageTeam`.
 
-> **Security note.** Because a 4th year's self-declared `teamHeadRole` takes effect on
-> signup, and the `@nitkkr.ac.in` check is only a string-suffix test (nobody proves they own
-> the address), **anyone who registers with such an address can obtain team-lead access.**
+> **Security note.** A 4th year's self-declared `teamHeadRole` takes effect on signup, and
+> the `@nitkkr.ac.in` check is only a string-suffix test — nobody proves they own the
+> address. So **anyone who registers with such an address can obtain team-lead access.**
 > Email verification is the control that closes this and is not yet implemented.
 
 ## ✅ Tests
 
 ```bash
-pnpm dev        # terminal 1
-pnpm seed       # reset to known fixtures
-pnpm test:e2e   # terminal 2 -- 35 end-to-end API checks
+pnpm dev          # terminal 1 (leave running)
+pnpm seed         # reset the local DB to known fixtures
+pnpm test:e2e     # terminal 2 — 90+ end-to-end API checks
 ```
 
 `scripts/e2e-test.ts` signs in through the real NextAuth flow and asserts access control,
-rate limiting, session revocation, and the task/EP write paths. It writes to the database
-in `MONGODB_URI`, so point it at a local Mongo.
-
-## 📱 Browser Support
-
-- Chrome 90+
-- Firefox 88+
-- Safari 14+
-- Edge 90+
-
-## 🚀 Production Deployment
-
-### Build
-```bash
-pnpm build
-# OR
-npm run build
-```
-
-### Start Production Server
-```bash
-pnpm start
-# OR
-npm start
-```
-
-## 📖 Documentation
-
-- **User Guide**: `COMPLETE_USER_GUIDE.md`
-- **Implementation Summary**: `IMPLEMENTATION_SUMMARY.md`
-- **Project Verification**: `PROJECT_VERIFICATION_REPORT.md`
-- **Startup Guide**: `STARTUP_GUIDE.md`
-
-(Documentation files are in the session folder: `C:/Users/mindp/.copilot/session-state/...`)
+role rules, session revocation, rate limiting and every write path. It refuses to run
+against a non-local `DATABASE_URL`, since it creates and deletes rows.
 
 ## 🛠️ Scripts
 
 ```bash
-# Development
-pnpm dev              # Start dev server
-pnpm build            # Build for production
-pnpm start            # Start production server
-pnpm seed             # Seed database with test data
-pnpm lint             # Run ESLint
+pnpm dev               # dev server
+pnpm build             # production build (a real typecheck — nothing suppressed)
+pnpm start             # start the production build
+pnpm lint              # ESLint
 
-# Windows Startup Scripts
-.\start-dev.bat       # Windows batch script
-.\start-dev.ps1       # PowerShell script
+pnpm db:generate       # regenerate SQL migrations after editing src/backend/schema.ts
+pnpm db:migrate        # apply migrations to DATABASE_URL (local)
+pnpm db:migrate:turso  # apply migrations to the live Turso DB (reads .env.turso)
+
+pnpm seed              # reset local DB to fixtures (refuses a non-local DB)
+pnpm purge:demo        # remove seeded fixtures + seed-default-password accounts
+pnpm test:e2e          # end-to-end API suite
+pnpm logo:build        # regenerate logo/icon assets from assets/
 ```
 
-## 📊 Database Models
+## 🗄️ Database
 
-- **User**: Member profiles, roles, departments
-- **Task**: Task assignments with timeline tracking
-- **EPEntry**: Event partnership records
-- **SponsorshipEntry**: Sponsor management
-- **DesignRequest**: Design workflow management
-- **Department**: Team organization
-- **Notification**: User notifications
-- **PerformanceLog**: Activity tracking
+SQLite via libSQL/Drizzle. Schema is `src/backend/schema.ts`; migrations live in `drizzle/`
+and are committed. Tables:
+
+`users`, `user_departments`, `departments`, `tasks`, `task_assignees`, `task_timeline`,
+`ep_entries`, `ep_history`, `sponsorship_entries`, `sponsorship_history`,
+`design_requests`, `notifications`, `performance_logs`.
+
+Changing the schema is `pnpm db:generate` then `pnpm db:migrate` (and
+`pnpm db:migrate:turso` before deploying). **Netlify does not run migrations** — a new
+table will not exist in production until you run it.
+
+## 🚢 Deployment (Netlify + Turso)
+
+1. Create a Turso database (ideally in a region near your users) and a token.
+2. `pnpm db:migrate:turso` once, to create the tables in it.
+3. In Netlify, set `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `AUTH_SECRET`,
+   `NEXTAUTH_SECRET`, `NEXTAUTH_URL` (your live origin, no trailing slash), and
+   `AUTHORIZED_SECRETARIES`.
+4. Trigger a deploy with **Clear cache and deploy site** — env changes don't apply
+   without a rebuild.
+5. Check `/api/health` → `{"status":"ok","database":"connected"}`, then register your
+   secretary account at `/register`.
+
+Every push to `main` auto-deploys. `/api/health` also reports `dbLatencyMs` and
+`functionRegion` — if latency is high, the database is in a different region from the
+functions.
 
 ## 🐛 Troubleshooting
 
-**"Invalid credentials or unauthorized portal access"**
-- Verify email is exactly correct (case-insensitive)
-- Check @nitkkr.ac.in domain
-- For admin portal: ensure email is in AUTHORIZED_SECRETARIES
-
-**"Email already registered"**
-- Account exists with this email
-- Try logging in instead
-
-**"Use a @nitkkr.ac.in email"**
-- Only NIT Kurukshetra emails allowed
-- Contact secretary if you need help
-
-**Save login info not working**
-- Check browser allows local storage
-- Some private/incognito modes don't support local storage
-- Try a different browser if needed
+- **`/api/health` says `degraded`** — the app can't reach the database. Check
+  `DATABASE_URL` / `DATABASE_AUTH_TOKEN` in Netlify and that you redeployed.
+- **Login loops back to the sign-in page in production** — `NEXTAUTH_URL` must be the real
+  HTTPS origin with no trailing slash.
+- **"Invalid credentials or unauthorized portal access"** — check the exact `@nitkkr.ac.in`
+  email; for the admin portal the email must be in `AUTHORIZED_SECRETARIES`.
+- **The site feels slow** — `/api/health` reports the DB round-trip latency and region.
 
 ## 📞 Support
 
-For issues or questions, contact:
 - **Primary**: 123105128@nitkkr.ac.in
-- **Backup**: Poswalmanavv@gmail.comm
-
-
-```
 
 ## 📄 License
 
-This project is for the Managing and Directing Club, NIT Kurukshetra.
+For the Managing and Directing Club, NIT Kurukshetra.
 
 ---
 
-**Status**: 🟡 Pre-launch — security hardening done and covered by end-to-end tests.
-Before going live you still need: email verification for @nitkkr.ac.in signups, a shared
-(Redis) rate-limit store, and error monitoring. See the launch checklist.  
+**Status**: 🟢 Deployed. Known pre-launch gaps: email verification for `@nitkkr.ac.in`
+signups, a shared (Redis) rate-limit store, error monitoring, and moving the Turso database
+to a region near the functions.
 **Version**: 1.0.0
-

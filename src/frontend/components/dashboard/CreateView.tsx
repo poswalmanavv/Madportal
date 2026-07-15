@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { EP_STATUSES, PRIORITIES, SPONSORSHIP_STATUSES } from "@shared/constants";
+import { MemberPicker } from "./MemberPicker";
 import { PageHeader, btnPrimary, card, input } from "./ui";
 
 type Field = {
@@ -172,23 +173,44 @@ function Form({
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Bumped after a successful create so the MemberPicker clears its selection for the next one.
+  const [resetKey, setResetKey] = useState(0);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setSaving(true);
-    setMessage("");
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
 
     const payload: Record<string, any> = {};
     for (const field of fields) payload[field.name] = form.get(field.name);
     for (const name of Object.keys(selects)) payload[name] = form.get(name);
 
     if (assignField) {
-      payload[assignField] = multiAssign ? form.getAll(assignField) : form.get(assignField);
+      // The picker no longer has native `required`, so validate the selection here.
+      if (multiAssign) {
+        const ids = form.getAll(assignField).map(String);
+        if (ids.length === 0) {
+          setOk(false);
+          setMessage("Assign the task to at least one member.");
+          return;
+        }
+        payload[assignField] = ids;
+      } else {
+        const id = form.get(assignField);
+        if (!id) {
+          setOk(false);
+          setMessage("Select a designer.");
+          return;
+        }
+        payload[assignField] = String(id);
+      }
     }
     // Tasks accept an attachments array; nothing in the UI sets one yet.
     if (endpoint === "/api/tasks") payload.attachments = [];
     if (endpoint === "/api/design-requests" && !payload.status) payload.status = "Pending";
+
+    setSaving(true);
+    setMessage("");
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -200,7 +222,8 @@ function Form({
     if (response.ok) {
       setOk(true);
       setMessage("Saved.");
-      (event.target as HTMLFormElement).reset();
+      formEl.reset();
+      setResetKey((key) => key + 1);
       await refresh();
       return;
     }
@@ -254,27 +277,17 @@ function Form({
         ))}
 
         {assignField && (
-          <label className="text-xs font-semibold text-neutral-500 sm:col-span-2">
-            {multiAssign ? "Assign to (hold Ctrl to pick several)" : "Assigned designer"}
+          <div className="text-xs font-semibold text-neutral-500 sm:col-span-2">
+            {multiAssign ? "Assign to" : "Assigned designer"}
             <span className="text-rose-600"> *</span>
-            <select
+            <MemberPicker
               name={assignField}
+              members={members}
               multiple={multiAssign}
-              required
-              className={`${input} mt-1 block w-full ${multiAssign ? "min-h-28" : ""}`}
-            >
-              {members.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name} · {member.year}
-                </option>
-              ))}
-            </select>
-            {!members.length && (
-              <span className="mt-1 block font-normal text-neutral-400">
-                No members are visible to you yet.
-              </span>
-            )}
-          </label>
+              resetKey={resetKey}
+              placeholder={multiAssign ? "Search and select members..." : "Search and select a designer..."}
+            />
+          </div>
         )}
       </div>
 

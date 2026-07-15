@@ -202,6 +202,8 @@ export function formatDateTime(value?: string | null) {
   });
 }
 
+// A true 0-100 rate (a member's overall completion), where a bar is the right shape. Used
+// in Team Performance, not for a task's own progress.
 export function ProgressBar({ value }: { value: number }) {
   return (
     <span className="flex items-center gap-2">
@@ -209,6 +211,41 @@ export function ProgressBar({ value }: { value: number }) {
         <span className="block h-full rounded-full bg-brand" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
       </span>
       <span className="text-xs tabular-nums text-neutral-500">{value}%</span>
+    </span>
+  );
+}
+
+// Task progress is stored as a 0-100 number, but a bar is noise in a dense table -- these
+// buckets read at a glance. The values a member can pick map back onto that number, so the
+// database field and the completion charts are unchanged.
+export const PROGRESS_STEPS = [
+  { label: "Not started", value: 0 },
+  { label: "In progress", value: 50 },
+  { label: "Almost done", value: 90 },
+  { label: "Completed", value: 100 }
+] as const;
+
+export function progressLabel(value: number) {
+  if (value >= 100) return "Completed";
+  if (value >= 75) return "Almost done";
+  if (value > 0) return "In progress";
+  return "Not started";
+}
+
+const PROGRESS_TONE: Record<string, string> = {
+  "Not started": "slate",
+  "In progress": "amber",
+  "Almost done": "blue",
+  Completed: "green"
+};
+
+export function ProgressLabel({ value }: { value: number }) {
+  const label = progressLabel(value);
+  const tone = PROGRESS_TONE[label] ?? "slate";
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_CLASS[tone]}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${DOT_CLASS[tone]}`} />
+      {label}
     </span>
   );
 }

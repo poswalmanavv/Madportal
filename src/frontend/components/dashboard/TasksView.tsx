@@ -6,16 +6,18 @@ import { PRIORITIES, TASK_STATUSES } from "@shared/constants";
 import {
   Avatar,
   EmptyState,
+  PROGRESS_STEPS,
   PageHeader,
   PriorityPill,
-  ProgressBar,
+  ProgressLabel,
   RefTag,
   StatusPill,
   btnGhost,
   btnPrimary,
   card,
   formatDate,
-  input
+  input,
+  progressLabel
 } from "./ui";
 
 type Task = Record<string, any>;
@@ -168,7 +170,7 @@ export function TasksView({
                         <StatusPill value={task.status} />
                       </td>
                       <td className="px-4 py-4 align-top">
-                        <ProgressBar value={task.progress ?? 0} />
+                        <ProgressLabel value={task.progress ?? 0} />
                       </td>
                       <td className="px-4 py-4 align-top">
                         {assignees.length ? (
@@ -292,17 +294,31 @@ function UpdateForm({
         </select>
       </label>
 
-      <label className="text-xs font-semibold text-neutral-500">
-        Progress: {progress}%
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={progress}
-          onChange={(e) => setProgress(Number(e.target.value))}
-          className="mt-3 block w-40"
-        />
-      </label>
+      <div className="text-xs font-semibold text-neutral-500">
+        Progress
+        <div className="mt-1 flex flex-wrap gap-1">
+          {PROGRESS_STEPS.map((step) => {
+            // Highlight by bucket, not exact value, so an existing task at e.g. 45 still
+            // shows "In progress" as active. Clicking sets that bucket's representative value.
+            const active = progressLabel(progress) === step.label;
+            return (
+              <button
+                key={step.label}
+                type="button"
+                onClick={() => setProgress(step.value)}
+                aria-pressed={active}
+                className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? "border-brand bg-brand/10 text-brand"
+                    : "border-neutral-300 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {step.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <label className="min-w-[200px] flex-1 text-xs font-semibold text-neutral-500">
         Comment

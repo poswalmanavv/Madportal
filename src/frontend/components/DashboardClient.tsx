@@ -1,8 +1,7 @@
 "use client";
 
-import { signOut } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, KeyRound, LogOut, Menu, X } from "lucide-react";
+import { Bell, Menu, X } from "lucide-react";
 import { DESIGN_STATUSES, EP_STATUSES, SPONSORSHIP_STATUSES } from "@shared/constants";
 import { CreateView } from "./dashboard/CreateView";
 import { MembersView } from "./dashboard/MembersView";
@@ -11,7 +10,7 @@ import { OverviewView } from "./dashboard/OverviewView";
 import { PipelineView, cell } from "./dashboard/PipelineView";
 import { Sidebar, type ViewKey } from "./dashboard/Sidebar";
 import { TasksView } from "./dashboard/TasksView";
-import { Avatar, btnGhost } from "./dashboard/ui";
+import { UserMenu } from "./dashboard/UserMenu";
 
 type DashboardData = {
   current: {
@@ -153,16 +152,15 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
             )}
           </button>
 
-          <a href="/account/password" className={`${btnGhost} hidden sm:inline-flex`}>
-            <KeyRound size={15} /> Password
-          </a>
-
-          <button onClick={() => signOut({ callbackUrl: "/" })} className={btnGhost}>
-            <LogOut size={15} />
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
-
-          <Avatar name={data.current.name} size={34} />
+          <UserMenu
+            name={data.current.name}
+            email={data.current.email}
+            subtitle={`${data.current.year}${
+              data.current.teamHeadRole && data.current.teamHeadRole !== "None"
+                ? ` · ${data.current.teamHeadRole}`
+                : ""
+            }${isSecretary ? " · Secretary" : ""}`}
+          />
         </header>
 
         <main className="px-4 py-6 lg:px-8">

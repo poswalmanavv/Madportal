@@ -327,6 +327,20 @@ async function main() {
   const juniorDoc = await db.collection("users").findOne({ email: `junior.${stamp}@nitkkr.ac.in` });
   check("...and no account was created for them", !juniorDoc);
 
+  // 1st years are not registering for now. The form hides the option; the server rejects it
+  // if sent directly.
+  const firstYearEmail = `firstyear.${stamp}@nitkkr.ac.in`;
+  const firstYearReg = await anon.post("/api/auth/register", {
+    name: "First Year",
+    email: firstYearEmail,
+    password: "FirstYear@123",
+    year: "1st Year",
+    departments: ["Media Team"]
+  });
+  check("A 1st year CANNOT register (400)", firstYearReg.status === 400, `got ${firstYearReg.status}`);
+  const firstYearDoc = await db.collection("users").findOne({ email: firstYearEmail });
+  check("...and no account was created for them", !firstYearDoc);
+
   // "Secretary" is offered in the dropdown but is a restricted label: only an email on the
   // AUTHORIZED_SECRETARIES allowlist may claim it. Otherwise any 4th year could present
   // themselves to the club as a Secretary.

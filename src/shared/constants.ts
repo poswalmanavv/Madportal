@@ -1,4 +1,10 @@
 export const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year"] as const;
+
+// Years offered in the public registration form. 1st years are not registering for now.
+// YEARS itself keeps all four, so existing 1st-year accounts still log in, the DB enum is
+// unchanged, and a secretary can still create a 1st-year member from the admin side.
+// To re-open 1st-year signups later, delete this and use YEARS in the form again.
+export const REGISTRABLE_YEARS = YEARS.filter((year) => year !== "1st Year");
 export const DEPARTMENTS = [
   "EP Team",
   "Sponsorship Team",

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { DEPARTMENTS, SELECTABLE_TEAM_HEAD_ROLES, TEAM_HEAD_YEAR, YEARS } from "@shared/constants";
+import { DEPARTMENTS, REGISTRABLE_YEARS, SELECTABLE_TEAM_HEAD_ROLES, TEAM_HEAD_YEAR } from "@shared/constants";
 import { AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
 import { Logo } from "@frontend/components/Logo";
 
@@ -13,7 +13,9 @@ export default function RegisterPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
-  const [year, setYear] = useState<string>(YEARS[0]);
+  // Default to the first registrable year, not YEARS[0] -- that was "1st Year", which the
+  // form no longer offers. Leaving the default at a hidden value would submit it invisibly.
+  const [year, setYear] = useState<string>(REGISTRABLE_YEARS[0]);
 
   // Only 4th years hold team head roles, so the card is shown to them alone -- and when it
   // is shown, it is mandatory. The server enforces both halves of this rule independently
@@ -147,7 +149,7 @@ export default function RegisterPage() {
                 onChange={(event) => setYear(event.target.value)}
                 className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"
               >
-                {YEARS.map((option) => (
+                {REGISTRABLE_YEARS.map((option) => (
                   <option key={option}>{option}</option>
                 ))}
               </select>

@@ -4,6 +4,7 @@ import {
   DESIGN_STATUSES,
   EP_STATUSES,
   PRIORITIES,
+  REGISTRABLE_YEARS,
   RESTRICTED_TEAM_HEAD_ROLE,
   SPONSORSHIP_STATUSES,
   TASK_STATUSES,
@@ -36,6 +37,17 @@ const baseAccountSchema = z.object({
 
 export const registerSchema = baseAccountSchema
   .superRefine((data, ctx) => {
+    // 1st years are not registering for now. The form hides the option, and this rejects it
+    // if sent directly -- hiding a dropdown value is presentation, not a control. Secretaries
+    // creating members are not bound by this (adminCreateMemberSchema has no such check).
+    if (!(REGISTRABLE_YEARS as readonly string[]).includes(data.year)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["year"],
+        message: "Registration is not open for this year right now"
+      });
+    }
+
     const isFinalYear = data.year === TEAM_HEAD_YEAR;
     const claimsRole = Boolean(data.teamHeadRole && data.teamHeadRole !== "None");
 

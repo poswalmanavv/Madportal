@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { YEARS } from "@shared/constants";
+import { PasswordInput } from "@frontend/components/PasswordInput";
 
 export function AuthForm({ portal }: { portal: "member" | "admin" }) {
   const router = useRouter();
@@ -67,12 +68,12 @@ export function AuthForm({ portal }: { portal: "member" | "admin" }) {
         defaultValue={savedEmail}
         className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-3 dark:border-neutral-700" 
       />
-      <input 
-        name="password" 
-        type="password" 
-        required 
-        placeholder="Password" 
-        className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-3 dark:border-neutral-700" 
+      <PasswordInput
+        name="password"
+        required
+        placeholder="Password"
+        autoComplete="current-password"
+        className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-3 dark:border-neutral-700"
       />
       {portal === "member" && (
         <select 

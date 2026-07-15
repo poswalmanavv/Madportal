@@ -6,6 +6,7 @@ import { useState } from "react";
 import { DEPARTMENTS, REGISTRABLE_YEARS, SELECTABLE_TEAM_HEAD_ROLES, TEAM_HEAD_YEAR } from "@shared/constants";
 import { AlertCircle, CheckCircle, ShieldCheck } from "lucide-react";
 import { Logo } from "@frontend/components/Logo";
+import { PasswordInput } from "@frontend/components/PasswordInput";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -132,10 +133,11 @@ export default function RegisterPage() {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Password</label>
-              <input
+              <PasswordInput
                 name="password"
-                type="password"
                 required
+                minLength={8}
+                autoComplete="new-password"
                 placeholder="Min 8 characters"
                 className="w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2.5 dark:border-neutral-700"
               />

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlertCircle, ArrowLeft, CheckCircle } from "lucide-react";
+import { PasswordInput } from "@frontend/components/PasswordInput";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -72,9 +73,8 @@ export default function ChangePasswordPage() {
         <form action={onSubmit} className="space-y-5">
           <div>
             <label className="mb-1 block text-sm font-medium">Current Password</label>
-            <input
+            <PasswordInput
               name="currentPassword"
-              type="password"
               required
               autoComplete="current-password"
               placeholder="Your current password"
@@ -83,9 +83,8 @@ export default function ChangePasswordPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">New Password</label>
-            <input
+            <PasswordInput
               name="newPassword"
-              type="password"
               required
               minLength={8}
               autoComplete="new-password"
@@ -95,9 +94,8 @@ export default function ChangePasswordPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium">Confirm New Password</label>
-            <input
+            <PasswordInput
               name="confirmPassword"
-              type="password"
               required
               minLength={8}
               autoComplete="new-password"

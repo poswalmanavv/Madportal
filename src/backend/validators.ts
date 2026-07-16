@@ -126,6 +126,23 @@ export const taskUpdateSchema = z.object({
   comment: z.string().min(2)
 });
 
+// A comment on a task. `mentions` carries user ids chosen in the composer rather than the
+// server parsing "@Name" out of the body -- names contain spaces, so parsing is ambiguous
+// and would silently mis-target. The server still checks each id is a real, visible member.
+export const commentSchema = z.object({
+  body: z.string().trim().min(1, "Write something first").max(5000),
+  mentions: z.array(z.string()).default([]),
+  attachments: z
+    .array(
+      z.object({
+        url: z.string().url("Attachment must be a valid URL"),
+        label: z.string().max(200).optional()
+      })
+    )
+    .max(10)
+    .default([])
+});
+
 export const epEntrySchema = z.object({
   epName: z.string().min(2),
   organization: z.string().min(2),

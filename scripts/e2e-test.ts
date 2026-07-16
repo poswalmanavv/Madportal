@@ -630,6 +630,87 @@ async function main() {
   });
   check("Member CANNOT update a task assigned to someone else (403)", idorAttempt.status === 403, `got ${idorAttempt.status}`);
 
+  // ------------------------------------------------------------- comments and mentions
+  section("Comments, @mentions and the activity trail");
+
+  // The task detail endpoint returns the task, its activity trail and its thread together.
+  const detail = await member.json(`/api/tasks/${taskId}`);
+  check("Assignee CAN open the task detail (200)", detail.status === 200, `got ${detail.status}`);
+  check("...it includes the activity trail", Array.isArray(detail.body?.timeline) && detail.body.timeline.length > 0, `${detail.body?.timeline?.length} events`);
+  check("...with the actor's name resolved", Boolean(detail.body?.timeline?.[0]?.actorName), "actorName missing");
+  check("...and an (empty) comment thread", Array.isArray(detail.body?.comments), "comments missing");
+
+  // An unrelated member must not read another task's thread.
+  const outsiderDetail = await attacker.json(`/api/tasks/${taskId}`);
+  check("A non-assignee CANNOT open someone else's task (403)", outsiderDetail.status === 403, `got ${outsiderDetail.status}`);
+
+  const outsiderComments = await attacker.json(`/api/tasks/${taskId}/comments`);
+  check("...nor read its comments (403)", outsiderComments.status === 403, `got ${outsiderComments.status}`);
+
+  const outsiderPost = await attacker.post(`/api/tasks/${taskId}/comments`, { body: "let me in" });
+  check("...nor comment on it (403)", outsiderPost.status === 403, `got ${outsiderPost.status}`);
+
+  // Post a comment mentioning the secretary.
+  const secretaryDoc = await db.collection("users").findOne({ email: secretaryEmail });
+  const posted = await member.post(`/api/tasks/${taskId}/comments`, {
+    body: `Blocked on the venue, @${secretaryDoc?.name} can you confirm?`,
+    mentions: [String(secretaryDoc?._id)],
+    attachments: [{ url: "https://example.com/brief.pdf", label: "Brief" }]
+  });
+  check("Assignee CAN post a comment (201)", posted.status === 201, `got ${posted.status}`);
+
+  const withComment = await member.json(`/api/tasks/${taskId}`);
+  const firstComment = withComment.body?.comments?.[0];
+  check("...the comment appears in the thread", withComment.body?.comments?.length === 1, `${withComment.body?.comments?.length} comments`);
+  check("...with its author resolved", firstComment?.author?.email === "rohan@nitkkr.ac.in", `got ${firstComment?.author?.email}`);
+  check("...its mention recorded", firstComment?.mentions?.length === 1, `${firstComment?.mentions?.length} mentions`);
+  check("...and its attachment recorded", firstComment?.attachments?.[0]?.url === "https://example.com/brief.pdf", "attachment missing");
+
+  const emptyComment = await member.post(`/api/tasks/${taskId}/comments`, { body: "   " });
+  check("An empty comment is rejected (400)", emptyComment.status === 400, `got ${emptyComment.status}`);
+
+  const badAttachment = await member.post(`/api/tasks/${taskId}/comments`, {
+    body: "see this",
+    attachments: [{ url: "not-a-url" }]
+  });
+  check("An attachment that is not a URL is rejected (400)", badAttachment.status === 400, `got ${badAttachment.status}`);
+
+  // A crafted request must not be able to mention a user who does not exist.
+  const bogusMention = await member.post(`/api/tasks/${taskId}/comments`, {
+    body: "hello",
+    mentions: ["00000000-0000-0000-0000-000000000000"]
+  });
+  check("A mention of a non-existent user is ignored, not fatal (201)", bogusMention.status === 201, `got ${bogusMention.status}`);
+
+  // The mentioned secretary should now see it.
+  const secretaryMentions = await secretary.json("/api/mentions");
+  check("The mentioned user sees the mention (200)", secretaryMentions.status === 200, `got ${secretaryMentions.status}`);
+  check("...exactly one of them", secretaryMentions.body?.mentions?.length === 1, `${secretaryMentions.body?.mentions?.length} mentions`);
+  check("...unread", secretaryMentions.body?.unreadCount === 1, `unreadCount ${secretaryMentions.body?.unreadCount}`);
+  check("...carrying the task title", secretaryMentions.body?.mentions?.[0]?.taskTitle === `E2E task ${stamp}`, `got ${secretaryMentions.body?.mentions?.[0]?.taskTitle}`);
+
+  // The badge count is served with the dashboard.
+  const secretaryDash = await secretary.json("/api/dashboard");
+  check("The dashboard reports the unread mention count for the badge", secretaryDash.body?.mentionCount === 1, `got ${secretaryDash.body?.mentionCount}`);
+
+  // Someone who was not mentioned must not see it.
+  const attackerMentions = await attacker.json("/api/mentions");
+  check("A user who was NOT mentioned sees nothing", attackerMentions.body?.mentions?.length === 0, `${attackerMentions.body?.mentions?.length} mentions`);
+
+  const anonMentions = await anon.json("/api/mentions");
+  check("GET /api/mentions rejects an anonymous caller (401)", anonMentions.status === 401, `got ${anonMentions.status}`);
+
+  // Marking read clears the badge -- and only for the caller.
+  const markMentionsRead = await secretary.post("/api/mentions", {});
+  check("Marking mentions read succeeds (200)", markMentionsRead.status === 200, `got ${markMentionsRead.status}`);
+
+  const afterMentionsRead = await secretary.json("/api/mentions");
+  check("...the unread count drops to zero", afterMentionsRead.body?.unreadCount === 0, `unreadCount ${afterMentionsRead.body?.unreadCount}`);
+  check("...but the mention is still listed", afterMentionsRead.body?.mentions?.length === 1, `${afterMentionsRead.body?.mentions?.length} mentions`);
+
+  const dashAfterRead = await secretary.json("/api/dashboard");
+  check("...and the dashboard badge clears", dashAfterRead.body?.mentionCount === 0, `got ${dashAfterRead.body?.mentionCount}`);
+
   // ----------------------------------------------------------------------- task deletion
   section("Task deletion (secretaries only)");
 
@@ -665,6 +746,24 @@ async function main() {
   });
   check("...its assignee rows are gone (no orphans)", Number(orphanAssignees.rows[0].c) === 0, `${orphanAssignees.rows[0].c} left`);
   check("...its timeline rows are gone (no orphans)", Number(orphanTimeline.rows[0].c) === 0, `${orphanTimeline.rows[0].c} left`);
+
+  // Comments carry their own children (mentions, attachments) keyed by comment id, not task
+  // id. If they were not cleared, a stale mention would keep counting toward someone's badge
+  // forever, pointing at a task that no longer exists.
+  const orphanComments = await client.execute({
+    sql: "SELECT COUNT(*) AS c FROM task_comments WHERE task_id = ?",
+    args: [taskId]
+  });
+  check("...its comments are gone (no orphans)", Number(orphanComments.rows[0].c) === 0, `${orphanComments.rows[0].c} left`);
+
+  const orphanMentions = await client.execute("SELECT COUNT(*) AS c FROM comment_mentions WHERE comment_id NOT IN (SELECT id FROM task_comments)");
+  check("...no mention rows are left pointing at deleted comments", Number(orphanMentions.rows[0].c) === 0, `${orphanMentions.rows[0].c} left`);
+
+  const orphanAttachments = await client.execute("SELECT COUNT(*) AS c FROM comment_attachments WHERE comment_id NOT IN (SELECT id FROM task_comments)");
+  check("...no attachment rows are left pointing at deleted comments", Number(orphanAttachments.rows[0].c) === 0, `${orphanAttachments.rows[0].c} left`);
+
+  const secretaryDashAfterDelete = await secretary.json("/api/dashboard");
+  check("...and the deleted task's mention no longer counts", secretaryDashAfterDelete.body?.mentionCount === 0, `got ${secretaryDashAfterDelete.body?.mentionCount}`);
 
   const deleteMissing = await secretary.fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
   check("Deleting an already-deleted task returns 404", deleteMissing.status === 404, `got ${deleteMissing.status}`);

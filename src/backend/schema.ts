@@ -118,6 +118,57 @@ export const taskTimeline = sqliteTable(
   (table) => [index("task_timeline_task_idx").on(table.taskId)]
 );
 
+export const taskComments = sqliteTable(
+  "task_comments",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => [index("task_comments_task_idx").on(table.taskId)]
+);
+
+// Who was @-mentioned in a comment. A table rather than parsing the body on read: it makes
+// "my mentions" and the unread badge an indexed lookup instead of a scan over every comment.
+export const commentMentions = sqliteTable(
+  "comment_mentions",
+  {
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    read: integer("read", { mode: "boolean" }).notNull().default(false)
+  },
+  (table) => [
+    primaryKey({ columns: [table.commentId, table.userId] }),
+    index("comment_mentions_user_idx").on(table.userId)
+  ]
+);
+
+// Attachments are stored as URLs, not bytes. Netlify's filesystem is read-only and Turso is
+// not a blob store, so uploading real files needs a storage provider; a link works today and
+// this table does not change when one is added.
+export const commentAttachments = sqliteTable(
+  "comment_attachments",
+  {
+    id: text("id").primaryKey(),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    label: text("label")
+  },
+  (table) => [index("comment_attachments_comment_idx").on(table.commentId)]
+);
+
 export const epEntries = sqliteTable(
   "ep_entries",
   {

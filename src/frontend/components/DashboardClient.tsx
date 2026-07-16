@@ -9,6 +9,8 @@ import { NotificationsView } from "./dashboard/NotificationsView";
 import { OverviewView } from "./dashboard/OverviewView";
 import { PipelineView, cell } from "./dashboard/PipelineView";
 import { Sidebar, type ViewKey } from "./dashboard/Sidebar";
+import { MentionsView } from "./dashboard/MentionsView";
+import { TaskDetail } from "./dashboard/TaskDetail";
 import { TasksView } from "./dashboard/TasksView";
 import { UserMenu } from "./dashboard/UserMenu";
 
@@ -28,12 +30,14 @@ type DashboardData = {
   epEntries: Array<Record<string, any>>;
   sponsorships: Array<Record<string, any>>;
   designRequests: Array<Record<string, any>>;
+  mentionCount?: number;
   charts: Record<string, any>;
 };
 
 export function DashboardClient({ initialData }: { initialData: DashboardData }) {
   const [data, setData] = useState(initialData);
   const [view, setView] = useState<ViewKey>("overview");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [notifications, setNotifications] = useState<Array<Record<string, any>>>([]);
@@ -94,8 +98,20 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
     ep: data.epEntries.length,
     sponsorships: data.sponsorships.length,
     design: (data.designRequests ?? []).length,
-    members: data.memberStats.length
+    members: data.memberStats.length,
+    // Unread @-mentions, counted server-side in buildDashboard().
+    mentions: data.mentionCount ?? 0
   };
+
+  // Opening a task from anywhere (a task row, a mention) shows the detail view.
+  function openTask(taskId: string) {
+    setSelectedTaskId(taskId);
+    setView("task");
+  }
+
+  const selectedTask = selectedTaskId
+    ? allTasks.find((task) => String(task._id ?? task.id) === selectedTaskId)
+    : undefined;
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] dark:bg-neutral-950">
@@ -166,6 +182,29 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
         <main className="px-4 py-6 lg:px-8">
           {view === "overview" && <OverviewView data={data} />}
 
+          {view === "task" &&
+            (selectedTask ? (
+              <TaskDetail
+                task={selectedTask}
+                members={data.memberStats}
+                currentUserId={data.current.id}
+                canManage={canManage}
+                canDelete={isSecretary}
+                onBack={() => setView("tasks")}
+                refresh={refresh}
+              />
+            ) : (
+              // The task was deleted, or is no longer visible to this member.
+              <p className="text-sm text-neutral-500">
+                That task is no longer available.{" "}
+                <button onClick={() => setView("tasks")} className="font-semibold text-brand">
+                  Back to tasks
+                </button>
+              </p>
+            ))}
+
+          {view === "mentions" && <MentionsView onOpenTask={openTask} refresh={refresh} />}
+
           {view === "tasks" && (
             <TasksView
               title="All Tasks"
@@ -174,6 +213,7 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               currentUserId={data.current.id}
               canManage={canManage}
               canDelete={isSecretary}
+              onOpen={openTask}
               refresh={refresh}
             />
           )}
@@ -186,6 +226,7 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               currentUserId={data.current.id}
               canManage={canManage}
               canDelete={isSecretary}
+              onOpen={openTask}
               refresh={refresh}
             />
           )}

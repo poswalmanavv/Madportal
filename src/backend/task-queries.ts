@@ -1,6 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
-import { taskAssignees, tasks, users } from "./schema";
+import { taskAssignees, taskTimeline, tasks, users } from "./schema";
 
 /**
  * Tasks with their assignees.
@@ -98,6 +98,32 @@ export async function getTaskById(id: string): Promise<TaskWithAssignees | null>
     .where(eq(tasks.id, id));
 
   return groupRows(rows as JoinedRow[])[0] ?? null;
+}
+
+/**
+ * A task's activity trail, newest first, with the actor's name resolved.
+ *
+ * Deliberately not part of listAllTasks: the dashboard ships every task, and carrying every
+ * task's full history with it would bloat the payload for data only ever read one task at a
+ * time. The detail view fetches this.
+ */
+export async function listTaskTimeline(taskId: string) {
+  const rows = await db
+    .select({
+      id: taskTimeline.id,
+      status: taskTimeline.status,
+      progress: taskTimeline.progress,
+      comment: taskTimeline.comment,
+      createdAt: taskTimeline.createdAt,
+      actorId: users.id,
+      actorName: users.name
+    })
+    .from(taskTimeline)
+    .innerJoin(users, eq(users.id, taskTimeline.actor))
+    .where(eq(taskTimeline.taskId, taskId))
+    .orderBy(asc(taskTimeline.createdAt));
+
+  return rows;
 }
 
 export async function assigneeIdsFor(taskId: string): Promise<string[]> {

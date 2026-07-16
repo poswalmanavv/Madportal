@@ -29,6 +29,7 @@ export function TasksView({
   currentUserId,
   canManage,
   canDelete,
+  onOpen,
   refresh
 }: {
   title: string;
@@ -37,6 +38,7 @@ export function TasksView({
   currentUserId: string;
   canManage: boolean;
   canDelete: boolean;
+  onOpen: (taskId: string) => void;
   refresh: () => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
@@ -158,7 +160,13 @@ export function TasksView({
                     >
                       <td className="px-4 py-4 align-top">
                         <RefTag id={id} />
-                        <p className="mt-0.5 font-semibold">{task.title}</p>
+                        {/* Opens the full task: comments, activity, details. */}
+                        <button
+                          onClick={() => onOpen(id)}
+                          className="mt-0.5 block text-left font-semibold hover:text-brand hover:underline"
+                        >
+                          {task.title}
+                        </button>
                         {task.description && (
                           <p className="mt-0.5 line-clamp-1 text-xs text-neutral-500">{task.description}</p>
                         )}

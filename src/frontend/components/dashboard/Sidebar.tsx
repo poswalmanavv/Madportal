@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AtSign,
   BarChart3,
   Bell,
   ClipboardList,
@@ -21,6 +22,9 @@ export type ViewKey =
   | "design"
   | "members"
   | "notifications"
+  | "mentions"
+  // Not a nav item: the task detail view, reached by clicking a task row or a mention.
+  | "task"
   | "create";
 
 type Item = {
@@ -63,6 +67,8 @@ export function Sidebar({
 
   const rest: Item[] = [
     { key: "members", label: "Team Performance", icon: Users, badge: counts.members },
+    // Mentions carries its own unread badge, like Notifications.
+    { key: "mentions", label: "Mentions", icon: AtSign, badge: counts.mentions },
     { key: "notifications", label: "Notifications", icon: Bell, badge: unread }
   ];
 
@@ -95,7 +101,7 @@ export function Sidebar({
                   {typeof item.badge === "number" && item.badge > 0 && (
                     <span
                       className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                        item.key === "notifications"
+                        item.key === "notifications" || item.key === "mentions"
                           ? "bg-brand text-white"
                           : "bg-white/10 text-neutral-300"
                       }`}

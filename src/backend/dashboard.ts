@@ -4,6 +4,7 @@ import { canViewMember, isLeader, type AppUser } from "./rbac";
 import { designRequests, epEntries, sponsorshipEntries, users } from "./schema";
 import { listAllTasks, listTasksForAssignee } from "./task-queries";
 import { listUsers } from "./queries";
+import { unreadMentionCount } from "./comment-queries";
 
 /**
  * Builds the single aggregate the dashboard reads.
@@ -52,11 +53,12 @@ export async function buildDashboard(current: AppUser) {
 
   const [epRows, sponsorRows, designRows] = await db.batch([epQuery, sponsorQuery, designQuery]);
 
-  // These two each need their joined rows regrouped in JS, so they stay separate calls --
-  // but each is itself a single round trip (one LEFT JOIN).
-  const [allUsers, tasks] = await Promise.all([
+  // These each need their joined rows regrouped in JS, so they stay separate calls -- but
+  // each is itself a single round trip.
+  const [allUsers, tasks, mentionCount] = await Promise.all([
     listUsers({ activeOnly: true }),
-    leader ? listAllTasks() : listTasksForAssignee(current.id)
+    leader ? listAllTasks() : listTasksForAssignee(current.id),
+    unreadMentionCount(current.id)
   ]);
 
   // Performance visibility: a secretary sees the whole club, a leader sees only members who
@@ -109,6 +111,7 @@ export async function buildDashboard(current: AppUser) {
 
   return {
     current,
+    mentionCount,
     stats: {
       members: visibleUsers.length,
       activeMembers: visibleUsers.length,

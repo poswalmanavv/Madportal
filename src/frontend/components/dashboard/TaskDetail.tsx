@@ -1,7 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AtSign, ChevronLeft, Link2, Paperclip, Send, Trash2, X } from "lucide-react";
+import {
+  Activity as ActivityIcon,
+  AtSign,
+  Calendar,
+  CheckCircle2,
+  ChevronLeft,
+  Clock,
+  Info,
+  Link2,
+  MessageSquare,
+  Paperclip,
+  RefreshCw,
+  Send,
+  Trash2,
+  Users,
+  X
+} from "lucide-react";
 import { TASK_STATUSES } from "@shared/constants";
 import {
   Avatar,
@@ -10,7 +26,6 @@ import {
   ProgressLabel,
   RefTag,
   StatusPill,
-  btnGhost,
   btnPrimary,
   card,
   formatDate,
@@ -99,29 +114,39 @@ export function TaskDetail({
 
   return (
     <div>
-      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 text-sm font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+      <button
+        onClick={onBack}
+        className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 transition hover:text-neutral-900 dark:hover:text-neutral-100"
+      >
         <ChevronLeft size={16} /> Back to tasks
       </button>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         {/* ---------------------------------------------------------------- main column */}
-        <div className="space-y-4">
-          <section className={card}>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="space-y-5">
+          <section className={`${card} p-5 sm:p-6`}>
+            <div className="mb-4 flex flex-wrap items-center gap-2.5">
               <RefTag id={taskId} />
+              <span className="h-1 w-1 rounded-full bg-neutral-300 dark:bg-neutral-700" />
               <StatusPill value={view.status} />
               <PriorityPill value={view.priority} />
               <ProgressLabel value={view.progress ?? 0} />
             </div>
-            <h1 className="text-xl font-bold md:text-2xl">{view.title}</h1>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-600 dark:text-neutral-300">
-              {view.description}
-            </p>
-            {view.remarks && (
-              <p className="mt-3 rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600 dark:bg-neutral-800/60 dark:text-neutral-300">
-                <span className="font-semibold">Remarks: </span>
-                {view.remarks}
+            <h1 className="text-2xl font-bold leading-tight tracking-tight text-neutral-900 dark:text-neutral-50 md:text-[26px]">
+              {view.title}
+            </h1>
+            {view.description && (
+              <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-600 dark:text-neutral-300">
+                {view.description}
               </p>
+            )}
+            {view.remarks && (
+              <div className="mt-4 rounded-lg border-l-[3px] border-amber-400 bg-amber-50/70 py-2.5 pl-3.5 pr-3 dark:border-amber-500/70 dark:bg-amber-500/10">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                  Remarks
+                </p>
+                <p className="mt-0.5 text-sm text-neutral-700 dark:text-neutral-300">{view.remarks}</p>
+              </div>
             )}
           </section>
 
@@ -139,9 +164,9 @@ export function TaskDetail({
         </div>
 
         {/* ------------------------------------------------------------- right sidebar */}
-        <div className="space-y-4">
-          <section className={card}>
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-neutral-500">Update</p>
+        <div className="space-y-5">
+          <section className={`${card} p-5`}>
+            <SectionHeader icon={RefreshCw} title="Update" />
             <UpdatePanel
               taskId={taskId}
               currentStatus={view.status}
@@ -153,15 +178,17 @@ export function TaskDetail({
             />
           </section>
 
-          <section className={card}>
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-neutral-500">Assignees</p>
+          <section className={`${card} p-5`}>
+            <SectionHeader icon={Users} title="Assignees" trailing={<span className="text-xs font-medium text-neutral-400">{assignees.length}</span>} />
             {assignees.length === 0 && <p className="text-sm text-neutral-500">Nobody assigned.</p>}
-            <ul className="space-y-2">
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {assignees.map((member) => (
-                <li key={String(member.id ?? member._id)} className="flex items-center gap-2">
-                  <Avatar name={String(member.name)} size={30} />
+                <li key={String(member.id ?? member._id)} className="flex items-center gap-2.5 py-2.5 first:pt-0 last:pb-0">
+                  <Avatar name={String(member.name)} size={32} />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{member.name}</span>
+                    <span className="block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                      {member.name}
+                    </span>
                     <span className="block truncate text-xs text-neutral-500">{member.year}</span>
                   </span>
                 </li>
@@ -169,19 +196,19 @@ export function TaskDetail({
             </ul>
           </section>
 
-          <section className={card}>
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-neutral-500">Details</p>
-            <dl className="space-y-2 text-sm">
-              <Row label="Deadline" value={formatDate(view.deadline)} />
-              <Row label="Created" value={formatDate(view.createdAt)} />
-              <Row label="Comments" value={String(comments.length)} />
+          <section className={`${card} p-5`}>
+            <SectionHeader icon={Info} title="Details" />
+            <dl className="space-y-3 text-sm">
+              <Row icon={Calendar} label="Deadline" value={formatDate(view.deadline)} />
+              <Row icon={Clock} label="Created" value={formatDate(view.createdAt)} />
+              <Row icon={MessageSquare} label="Comments" value={String(comments.length)} />
             </dl>
           </section>
 
           {canDelete && (
             <button
               onClick={remove}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:hover:bg-rose-950/70"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/20 dark:hover:bg-rose-950/40"
             >
               <Trash2 size={15} /> Delete task
             </button>
@@ -192,11 +219,43 @@ export function TaskDetail({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/** A consistent icon + uppercase label header used at the top of every sidebar/main card. */
+function SectionHeader({
+  icon: Icon,
+  title,
+  trailing
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Icon size={14} className="text-neutral-400" />
+        <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{title}</p>
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
+function Row({
+  icon: Icon,
+  label,
+  value
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-neutral-500">{label}</dt>
-      <dd className="font-medium">{value}</dd>
+      <dt className="flex items-center gap-1.5 text-neutral-500">
+        <Icon size={13} className="text-neutral-400" />
+        {label}
+      </dt>
+      <dd className="font-medium text-neutral-900 dark:text-neutral-100">{value}</dd>
     </div>
   );
 }
@@ -221,10 +280,18 @@ function CommentThread({
   reload: () => Promise<void>;
 }) {
   return (
-    <section className={card}>
-      <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-neutral-500">
-        Comments {comments.length > 0 && <span className="text-neutral-400">· {comments.length}</span>}
-      </p>
+    <section className={`${card} p-5 sm:p-6`}>
+      <SectionHeader
+        icon={MessageSquare}
+        title="Comments"
+        trailing={
+          comments.length > 0 ? (
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold text-neutral-500 dark:bg-neutral-800">
+              {comments.length}
+            </span>
+          ) : undefined
+        }
+      />
 
       {loading && <p className="py-4 text-sm text-neutral-500">Loading...</p>}
       {!loading && error && <p className="py-4 text-sm text-rose-600">{error}</p>}
@@ -232,30 +299,30 @@ function CommentThread({
         <p className="py-4 text-sm italic text-neutral-500">No comments yet.</p>
       )}
 
-      <ul className="space-y-4">
+      <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
         {comments.map((comment) => (
-          <li key={comment.id} className="flex gap-3">
-            <Avatar name={comment.author.name} size={32} />
+          <li key={comment.id} className="flex gap-3 py-4 first:pt-0 last:pb-0">
+            <Avatar name={comment.author.name} size={34} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm">
-                <span className="font-semibold">{comment.author.name}</span>
+              <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">{comment.author.name}</span>
                 {comment.author.id === currentUserId && (
-                  <span className="ml-1 text-xs text-neutral-400">(you)</span>
+                  <span className="text-xs text-neutral-400">(you)</span>
                 )}
-                <span className="ml-2 text-xs text-neutral-400">{formatDateTime(comment.createdAt)}</span>
+                <span className="text-xs text-neutral-400">{formatDateTime(comment.createdAt)}</span>
               </p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-neutral-700 dark:text-neutral-300">
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
                 {highlightMentions(comment.body, comment.mentions)}
               </p>
               {comment.attachments.length > 0 && (
-                <ul className="mt-2 flex flex-wrap gap-2">
+                <ul className="mt-2.5 flex flex-wrap gap-1.5">
                   {comment.attachments.map((attachment) => (
                     <li key={attachment.id}>
                       <a
                         href={attachment.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-brand hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-600 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300"
                       >
                         <Link2 size={12} />
                         {attachment.label || hostOf(attachment.url)}
@@ -378,7 +445,7 @@ function Composer({
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-neutral-200 p-2 dark:border-neutral-800">
+    <div className="mt-5 rounded-xl border border-neutral-200 bg-neutral-50/50 transition focus-within:border-brand/50 focus-within:ring-2 focus-within:ring-brand/10 dark:border-neutral-800 dark:bg-neutral-950/40">
       <textarea
         ref={boxRef}
         value={body}
@@ -391,15 +458,15 @@ function Composer({
         }}
         rows={3}
         placeholder="Write a comment... (Ctrl+Enter to post)"
-        className="w-full resize-y bg-transparent px-2 py-1.5 text-sm outline-none"
+        className="w-full resize-y rounded-t-xl bg-transparent px-3.5 py-3 text-sm outline-none placeholder:text-neutral-400"
       />
 
       {attachments.length > 0 && (
-        <ul className="mb-2 flex flex-wrap gap-2 px-2">
+        <ul className="mb-1 flex flex-wrap gap-2 px-3.5">
           {attachments.map((attachment, index) => (
             <li
               key={`${attachment.url}-${index}`}
-              className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800"
+              className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-1 text-xs dark:bg-neutral-800"
             >
               <Link2 size={11} />
               {hostOf(attachment.url)}
@@ -415,28 +482,32 @@ function Composer({
         </ul>
       )}
 
-      {error && <p className="px-2 pb-1 text-xs text-rose-600">{error}</p>}
+      {error && <p className="px-3.5 pb-1 text-xs text-rose-600">{error}</p>}
 
-      <div className="relative flex items-center justify-between gap-2 border-t border-neutral-100 pt-2 dark:border-neutral-800">
-        <div className="flex items-center gap-1">
-          <button onClick={addAttachment} className={`${btnGhost} !px-2 !py-1 text-xs`} type="button">
+      <div className="relative flex items-center justify-between gap-2 border-t border-neutral-200/70 px-2.5 py-2 dark:border-neutral-800">
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={addAttachment}
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          >
             <Paperclip size={13} /> Attach
           </button>
           <button
             onClick={() => setPickerOpen((value) => !value)}
-            className={`${btnGhost} !px-2 !py-1 text-xs`}
             type="button"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
             <AtSign size={13} /> Mention
           </button>
         </div>
 
-        <button onClick={post} disabled={saving || !body.trim()} className={`${btnPrimary} !px-3 !py-1.5 text-xs`}>
+        <button onClick={post} disabled={saving || !body.trim()} className={`${btnPrimary} !px-3.5 !py-1.5 text-xs`}>
           <Send size={13} /> {saving ? "Posting..." : "Post"}
         </button>
 
         {pickerOpen && (
-          <div className="absolute bottom-10 left-0 z-20 max-h-52 w-60 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="absolute bottom-11 left-0 z-20 max-h-52 w-60 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
             {members.length === 0 && (
               <p className="p-3 text-center text-xs text-neutral-500">No members to mention.</p>
             )}
@@ -462,30 +533,36 @@ function Composer({
 
 function ActivityPanel({ timeline }: { timeline: Array<Record<string, any>> }) {
   return (
-    <section className={card}>
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Activity</p>
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-500 dark:bg-neutral-800">
-          {timeline.length} {timeline.length === 1 ? "event" : "events"}
-        </span>
-      </div>
+    <section className={`${card} p-5 sm:p-6`}>
+      <SectionHeader
+        icon={ActivityIcon}
+        title="Activity"
+        trailing={
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold text-neutral-500 dark:bg-neutral-800">
+            {timeline.length} {timeline.length === 1 ? "event" : "events"}
+          </span>
+        }
+      />
 
       {timeline.length === 0 && <p className="py-2 text-sm text-neutral-500">No activity recorded.</p>}
 
-      <ol className="space-y-3">
+      <ol>
         {timeline.map((event, index) => (
-          <li key={String(event.id ?? index)} className="flex gap-3">
-            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand" />
-            <div className="min-w-0">
+          <li key={String(event.id ?? index)} className="relative flex gap-3 pb-5 last:pb-0">
+            {index !== timeline.length - 1 && (
+              <span className="absolute left-[5px] top-3 h-full w-px bg-neutral-200 dark:bg-neutral-800" />
+            )}
+            <span className="relative z-10 mt-1 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-white bg-brand dark:border-neutral-900" />
+            <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold">{event.actorName ?? "Someone"}</span>
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">{event.actorName ?? "Someone"}</span>
                 <StatusPill value={event.status} />
                 <ProgressLabel value={event.progress ?? 0} />
               </p>
               {event.comment && (
-                <p className="mt-0.5 break-words text-sm text-neutral-600 dark:text-neutral-300">{event.comment}</p>
+                <p className="mt-1 break-words text-sm text-neutral-600 dark:text-neutral-300">{event.comment}</p>
               )}
-              <p className="mt-0.5 text-xs text-neutral-400">{formatDateTime(event.createdAt)}</p>
+              <p className="mt-1 text-xs text-neutral-400">{formatDateTime(event.createdAt)}</p>
             </div>
           </li>
         ))}
@@ -540,43 +617,53 @@ function UpdatePanel({
   }
 
   return (
-    <form onSubmit={submit} className="space-y-2">
-      <select value={status} onChange={(event) => setStatus(event.target.value)} className={`${input} w-full`}>
-        {TASK_STATUSES.map((value) => (
-          <option key={value}>{value}</option>
-        ))}
-      </select>
-
-      <div className="flex flex-wrap gap-1">
-        {PROGRESS_STEPS.map((step) => (
-          <button
-            key={step.label}
-            type="button"
-            onClick={() => setProgress(step.value)}
-            aria-pressed={activeLabel === step.label}
-            className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
-              activeLabel === step.label
-                ? "border-brand bg-brand/10 text-brand"
-                : "border-neutral-300 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            }`}
-          >
-            {step.label}
-          </button>
-        ))}
+    <form onSubmit={submit} className="space-y-4">
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-neutral-500">Status</label>
+        <select value={status} onChange={(event) => setStatus(event.target.value)} className={`${input} w-full`}>
+          {TASK_STATUSES.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </select>
       </div>
 
-      <input
-        value={comment}
-        onChange={(event) => setComment(event.target.value)}
-        placeholder="What changed?"
-        required
-        minLength={2}
-        className={`${input} w-full`}
-      />
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-neutral-500">Progress</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PROGRESS_STEPS.map((step) => (
+            <button
+              key={step.label}
+              type="button"
+              onClick={() => setProgress(step.value)}
+              aria-pressed={activeLabel === step.label}
+              className={`flex items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition ${
+                activeLabel === step.label
+                  ? "border-brand bg-brand/10 text-brand"
+                  : "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {activeLabel === step.label && <CheckCircle2 size={12} />}
+              {step.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-neutral-500">What changed?</label>
+        <input
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder="Add a short note..."
+          required
+          minLength={2}
+          className={`${input} w-full`}
+        />
+      </div>
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
 
-      <button disabled={saving} className={`${btnPrimary} w-full justify-center !py-2 text-xs`}>
+      <button disabled={saving} className={`${btnPrimary} w-full justify-center !py-2.5 text-sm`}>
         {saving ? "Saving..." : "Save update"}
       </button>
     </form>

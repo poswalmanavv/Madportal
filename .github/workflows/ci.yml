@@ -38,14 +38,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Build
-        run: pnpm build
-
       - name: Create the database schema
         run: pnpm db:migrate
 
       - name: Seed the test database
         run: pnpm seed
+
+      - name: Build
+        run: pnpm build
 
       - name: Start the production server
         run: |

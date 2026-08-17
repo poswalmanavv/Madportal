@@ -6,6 +6,8 @@ import { listUsers } from "@backend/queries";
 import { sessionUser } from "@backend/rbac";
 import { listAllTasks } from "@backend/task-queries";
 
+export const dynamic = "force-dynamic";
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

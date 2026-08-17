@@ -36,7 +36,8 @@ function loadEnvFile(filePath: string) {
 const envFlagIndex = process.argv.indexOf("--env");
 const envFile = envFlagIndex !== -1 ? process.argv[envFlagIndex + 1] : ".env.local";
 
-if (!loadEnvFile(path.resolve(process.cwd(), envFile))) {
+const loadedEnvFile = loadEnvFile(path.resolve(process.cwd(), envFile));
+if (!loadedEnvFile && !process.env.DATABASE_URL) {
   console.error(`\nCannot find ${envFile}.`);
   if (envFile === ".env.turso") {
     console.error("\nCreate it in the project root with these two lines:\n");

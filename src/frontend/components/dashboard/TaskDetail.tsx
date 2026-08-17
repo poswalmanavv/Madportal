@@ -316,19 +316,37 @@ function CommentThread({
               </p>
               {comment.attachments.length > 0 && (
                 <ul className="mt-2.5 flex flex-wrap gap-1.5">
-                  {comment.attachments.map((attachment) => (
-                    <li key={attachment.id}>
-                      <a
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-600 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300"
-                      >
-                        <Link2 size={12} />
-                        {attachment.label || hostOf(attachment.url)}
-                      </a>
-                    </li>
-                  ))}
+                  {comment.attachments.map((attachment) => {
+                    // A data: URL is a file the user picked from disk -- Chrome blocks a plain
+                    // top-level navigation to one, so it must be offered as a download instead
+                    // of opened in a new tab the way a real link is.
+                    const isFile = attachment.url.startsWith("data:");
+                    const linkProps = isFile
+                      ? { download: attachment.label || "attachment" }
+                      : { target: "_blank", rel: "noopener noreferrer" };
+                    return (
+                      <li key={attachment.id}>
+                        {isImageAttachment(attachment) ? (
+                          <a
+                            href={attachment.url}
+                            {...linkProps}
+                            className="block h-16 w-16 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700"
+                          >
+                            <img src={attachment.url} alt={attachment.label ?? ""} className="h-full w-full object-cover" />
+                          </a>
+                        ) : (
+                          <a
+                            href={attachment.url}
+                            {...linkProps}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-xs font-medium text-neutral-600 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand dark:border-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-300"
+                          >
+                            {isFile ? <Paperclip size={12} /> : <Link2 size={12} />}
+                            {attachment.label || hostOf(attachment.url)}
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -377,6 +395,33 @@ function hostOf(url: string) {
   }
 }
 
+function isImageAttachment(attachment: { url: string; label?: string | null }) {
+  if (attachment.url.startsWith("data:image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(attachment.label ?? attachment.url);
+}
+
+function formatBytes(bytes?: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Kept comfortably under Netlify's ~6 MB function payload ceiling once base64 (~1.37x) and
+// the rest of the request are accounted for -- there is no file storage backing this app, so
+// an attachment's bytes travel inline as a data: URL all the way into the database.
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const MAX_ATTACHMENTS_TOTAL_BYTES = 4 * 1024 * 1024;
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 function Composer({
   taskId,
   members,
@@ -388,11 +433,13 @@ function Composer({
 }) {
   const [body, setBody] = useState("");
   const [mentions, setMentions] = useState<Array<{ id: string; name: string }>>([]);
-  const [attachments, setAttachments] = useState<Array<{ url: string; label?: string }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ url: string; label?: string; bytes?: number }>>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function addMention(member: Record<string, any>) {
     const name = String(member.name);
@@ -405,17 +452,41 @@ function Composer({
     boxRef.current?.focus();
   }
 
-  function addAttachment() {
-    const url = window.prompt("Paste a link to attach (Drive, Figma, an image URL...)");
-    if (!url) return;
-    try {
-      new URL(url);
-    } catch {
-      setError("That does not look like a valid URL.");
+  // There is no file storage behind this app (no S3/Cloudinary/Blob -- see the note on
+  // commentAttachments in schema.ts), so a picked file is read into a data: URL client-side
+  // and travels inline the same way a pasted link used to. Kept small enough to clear
+  // Netlify's function payload ceiling with base64's ~1.37x overhead.
+  async function handleFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setError("");
+    const files = Array.from(fileList);
+
+    if (attachments.length + files.length > 10) {
+      setError("You can attach up to 10 files per comment.");
       return;
     }
-    setError("");
-    setAttachments((current) => [...current, { url }]);
+    const oversized = files.find((file) => file.size > MAX_ATTACHMENT_BYTES);
+    if (oversized) {
+      setError(`"${oversized.name}" is over ${formatBytes(MAX_ATTACHMENT_BYTES)}. Attach a smaller file.`);
+      return;
+    }
+    const currentTotal = attachments.reduce((sum, a) => sum + (a.bytes ?? 0), 0);
+    const incomingTotal = files.reduce((sum, file) => sum + file.size, 0);
+    if (currentTotal + incomingTotal > MAX_ATTACHMENTS_TOTAL_BYTES) {
+      setError(`These files are too large together (${formatBytes(MAX_ATTACHMENTS_TOTAL_BYTES)} max per comment).`);
+      return;
+    }
+
+    setReading(true);
+    try {
+      const encoded = await Promise.all(
+        files.map(async (file) => ({ url: await readAsDataUrl(file), label: file.name, bytes: file.size }))
+      );
+      setAttachments((current) => [...current, ...encoded]);
+    } catch {
+      setError("Could not read that file. Try again.");
+    }
+    setReading(false);
   }
 
   async function post() {
@@ -430,7 +501,11 @@ function Composer({
     const response = await fetch(`/api/tasks/${taskId}/comments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, mentions: stillMentioned.map((m) => m.id), attachments })
+      body: JSON.stringify({
+        body,
+        mentions: stillMentioned.map((m) => m.id),
+        attachments: attachments.map(({ url, label }) => ({ url, label }))
+      })
     });
     setSaving(false);
 
@@ -465,11 +540,16 @@ function Composer({
         <ul className="mb-1 flex flex-wrap gap-2 px-3.5">
           {attachments.map((attachment, index) => (
             <li
-              key={`${attachment.url}-${index}`}
-              className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-1 text-xs dark:bg-neutral-800"
+              key={`${attachment.label}-${index}`}
+              className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-xs dark:bg-neutral-800"
             >
-              <Link2 size={11} />
-              {hostOf(attachment.url)}
+              {isImageAttachment(attachment) ? (
+                <img src={attachment.url} alt="" className="h-4 w-4 rounded-sm object-cover" />
+              ) : (
+                <Paperclip size={11} />
+              )}
+              <span className="max-w-[160px] truncate">{attachment.label}</span>
+              {attachment.bytes && <span className="text-neutral-400">{formatBytes(attachment.bytes)}</span>}
               <button
                 onClick={() => setAttachments((current) => current.filter((_, i) => i !== index))}
                 aria-label="Remove attachment"
@@ -486,12 +566,25 @@ function Composer({
 
       <div className="relative flex items-center justify-between gap-2 border-t border-neutral-200/70 px-2.5 py-2 dark:border-neutral-800">
         <div className="flex items-center gap-0.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.txt"
+            onChange={(event) => {
+              handleFiles(event.target.files);
+              // Clear the value so picking the same file again still fires onChange.
+              event.target.value = "";
+            }}
+            className="hidden"
+          />
           <button
-            onClick={addAttachment}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={reading}
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-50 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
-            <Paperclip size={13} /> Attach
+            <Paperclip size={13} /> {reading ? "Reading..." : "Attach"}
           </button>
           <button
             onClick={() => setPickerOpen((value) => !value)}

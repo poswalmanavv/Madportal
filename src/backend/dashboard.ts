@@ -1,7 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { db } from "./db";
 import { canViewMember, isLeader, type AppUser } from "./rbac";
-import { designRequests, epEntries, sponsorshipEntries, users } from "./schema";
+import { contentEntries, designRequests, epEntries, hospitalityEntries, sponsorshipEntries, users } from "./schema";
 import { listAllTasks, listTasksForAssignee } from "./task-queries";
 import { listUsers } from "./queries";
 import { unreadMentionCount } from "./comment-queries";
@@ -32,6 +32,22 @@ export async function buildDashboard(current: AppUser) {
         .where(eq(sponsorshipEntries.createdBy, current.id))
         .orderBy(desc(sponsorshipEntries.dateContacted));
 
+  const hospitalityQuery = leader
+    ? db.select().from(hospitalityEntries).orderBy(desc(hospitalityEntries.arrivalDate))
+    : db
+        .select()
+        .from(hospitalityEntries)
+        .where(eq(hospitalityEntries.createdBy, current.id))
+        .orderBy(desc(hospitalityEntries.arrivalDate));
+
+  const contentQuery = leader
+    ? db.select().from(contentEntries).orderBy(desc(contentEntries.deadline))
+    : db
+        .select()
+        .from(contentEntries)
+        .where(eq(contentEntries.createdBy, current.id))
+        .orderBy(desc(contentEntries.deadline));
+
   const designSelection = {
     request: designRequests,
     name: users.name,
@@ -51,7 +67,13 @@ export async function buildDashboard(current: AppUser) {
         .where(eq(designRequests.assignedDesigner, current.id))
         .orderBy(asc(designRequests.deadline));
 
-  const [epRows, sponsorRows, designRows] = await db.batch([epQuery, sponsorQuery, designQuery]);
+  const [epRows, sponsorRows, designRows, hospitalityRows, contentRows] = await db.batch([
+    epQuery,
+    sponsorQuery,
+    designQuery,
+    hospitalityQuery,
+    contentQuery
+  ]);
 
   // These each need their joined rows regrouped in JS, so they stay separate calls -- but
   // each is itself a single round trip.
@@ -72,6 +94,8 @@ export async function buildDashboard(current: AppUser) {
     _id: row.request.id,
     assignedDesigner: { _id: row.id, id: row.id, name: row.name, email: row.email }
   }));
+  const hospitalityList = hospitalityRows.map((row) => ({ ...row, _id: row.id }));
+  const contentList = contentRows.map((row) => ({ ...row, _id: row.id }));
 
   const memberStats = visibleUsers.map((member) => {
     const assigned = tasks.filter((task) => task.assignedTo.some((a) => a.id === member.id));
@@ -118,13 +142,17 @@ export async function buildDashboard(current: AppUser) {
       tasks: tasks.length,
       completedTasks: tasks.filter((task) => task.status === "Completed").length,
       epEntries: epList.length,
-      sponsorships: sponsorshipList.length
+      sponsorships: sponsorshipList.length,
+      hospitalityEntries: hospitalityList.length,
+      contentEntries: contentList.length
     },
     memberStats,
     tasks,
     epEntries: epList,
     sponsorships: sponsorshipList,
     designRequests: designList,
+    hospitalityEntries: hospitalityList,
+    contentEntries: contentList,
     charts: {
       monthlyContributions: Object.entries(monthly).map(([month, count]) => ({ month, count })),
       teamPerformance: visibleUsers.flatMap((member) =>

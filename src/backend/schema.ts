@@ -251,6 +251,83 @@ export const sponsorshipHistory = sqliteTable(
   (table) => [index("sponsorship_history_entry_idx").on(table.entryId)]
 );
 
+export const hospitalityEntries = sqliteTable(
+  "hospitality_entries",
+  {
+    id: text("id").primaryKey(),
+    guestName: text("guest_name").notNull(),
+    organization: text("organization"),
+    contactNumber: text("contact_number"),
+    email: text("email"),
+    arrivalDate: text("arrival_date"),
+    departureDate: text("departure_date"),
+    requirement: text("requirement"),
+    currentStatus: text("current_status").notNull(),
+    detailedUpdate: text("detailed_update"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => [index("hospitality_entries_created_by_idx").on(table.createdBy)]
+);
+
+export const hospitalityHistory = sqliteTable(
+  "hospitality_history",
+  {
+    id: text("id").primaryKey(),
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => hospitalityEntries.id, { onDelete: "cascade" }),
+    actor: text("actor")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    update: text("update").notNull(),
+    status: text("status").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => [index("hospitality_history_entry_idx").on(table.entryId)]
+);
+
+export const contentEntries = sqliteTable(
+  "content_entries",
+  {
+    id: text("id").primaryKey(),
+    contentTitle: text("content_title").notNull(),
+    contentType: text("content_type"),
+    platform: text("platform"),
+    deadline: text("deadline"),
+    description: text("description"),
+    currentStatus: text("current_status").notNull(),
+    detailedUpdate: text("detailed_update"),
+    link: text("link"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => [index("content_entries_created_by_idx").on(table.createdBy)]
+);
+
+export const contentHistory = sqliteTable(
+  "content_history",
+  {
+    id: text("id").primaryKey(),
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => contentEntries.id, { onDelete: "cascade" }),
+    actor: text("actor")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    update: text("update").notNull(),
+    status: text("status").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`)
+  },
+  (table) => [index("content_history_entry_idx").on(table.entryId)]
+);
+
 export const designRequests = sqliteTable(
   "design_requests",
   {

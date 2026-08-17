@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, Menu, X } from "lucide-react";
-import { DESIGN_STATUSES, EP_STATUSES, SPONSORSHIP_STATUSES } from "@shared/constants";
+import { CONTENT_STATUSES, DESIGN_STATUSES, EP_STATUSES, HOSPITALITY_STATUSES, SPONSORSHIP_STATUSES } from "@shared/constants";
 import { CreateView } from "./dashboard/CreateView";
 import { MembersView } from "./dashboard/MembersView";
 import { NotificationsView } from "./dashboard/NotificationsView";
@@ -30,6 +30,8 @@ type DashboardData = {
   epEntries: Array<Record<string, any>>;
   sponsorships: Array<Record<string, any>>;
   designRequests: Array<Record<string, any>>;
+  hospitalityEntries: Array<Record<string, any>>;
+  contentEntries: Array<Record<string, any>>;
   mentionCount?: number;
   charts: Record<string, any>;
 };
@@ -98,6 +100,8 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
     ep: data.epEntries.length,
     sponsorships: data.sponsorships.length,
     design: (data.designRequests ?? []).length,
+    hospitality: (data.hospitalityEntries ?? []).length,
+    content: (data.contentEntries ?? []).length,
     members: data.memberStats.length,
     // Unread @-mentions, counted server-side in buildDashboard().
     mentions: data.mentionCount ?? 0
@@ -302,6 +306,51 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
                 },
                 { header: "Designer", render: (row) => cell.person(row.assignedDesigner?.name) },
                 { header: "Status", render: (row) => cell.status(row.status) },
+                { header: "Deadline", render: (row) => cell.date(row.deadline) }
+              ]}
+            />
+          )}
+
+          {view === "hospitality" && (
+            <PipelineView
+              title="Hospitality"
+              subtitle="Guest hosting and logistics"
+              rows={data.hospitalityEntries ?? []}
+              statuses={HOSPITALITY_STATUSES}
+              searchOf={(row) => `${row.guestName} ${row.organization ?? ""}`}
+              titleOf={(row) => row.guestName}
+              statusOf={(row) => row.currentStatus}
+              endpoint={(id) => `/api/hospitality/${id}`}
+              buildBody={(status, comment) => ({ currentStatus: status, detailedUpdate: comment })}
+              refresh={refresh}
+              columns={[
+                { header: "Guest", render: (row) => cell.ref(String(row._id ?? row.id), row.guestName, row.requirement) },
+                { header: "Organization", render: (row) => (row.organization ? cell.tag(row.organization) : "—") },
+                { header: "Status", render: (row) => cell.status(row.currentStatus) },
+                { header: "Arrival", render: (row) => cell.date(row.arrivalDate) }
+              ]}
+            />
+          )}
+
+          {view === "content" && (
+            <PipelineView
+              title="Content Pipeline"
+              subtitle="Posts, articles and other content in production"
+              rows={data.contentEntries ?? []}
+              statuses={CONTENT_STATUSES}
+              searchOf={(row) => `${row.contentTitle} ${row.platform ?? ""}`}
+              titleOf={(row) => row.contentTitle}
+              statusOf={(row) => row.currentStatus}
+              endpoint={(id) => `/api/content/${id}`}
+              buildBody={(status, comment) => ({ currentStatus: status, detailedUpdate: comment })}
+              refresh={refresh}
+              columns={[
+                {
+                  header: "Content",
+                  render: (row) => cell.ref(String(row._id ?? row.id), row.contentTitle, row.description)
+                },
+                { header: "Platform", render: (row) => (row.platform ? cell.tag(row.platform) : "—") },
+                { header: "Status", render: (row) => cell.status(row.currentStatus) },
                 { header: "Deadline", render: (row) => cell.date(row.deadline) }
               ]}
             />

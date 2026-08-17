@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Send } from "lucide-react";
-import { EP_STATUSES, PRIORITIES, SPONSORSHIP_STATUSES } from "@shared/constants";
+import { CONTENT_STATUSES, EP_STATUSES, HOSPITALITY_STATUSES, PRIORITIES, SPONSORSHIP_STATUSES } from "@shared/constants";
 import { MemberPicker } from "./MemberPicker";
 import { PageHeader, btnPrimary, card, input } from "./ui";
 
@@ -14,7 +14,7 @@ type Field = {
   textarea?: boolean;
 };
 
-type Panel = "task" | "ep" | "sponsor" | "design";
+type Panel = "task" | "ep" | "sponsor" | "design" | "hospitality" | "content";
 
 /**
  * The create forms. Same endpoints and same payloads as before -- only the layout changed.
@@ -32,7 +32,7 @@ export function CreateView({
   canDesign: boolean;
   refresh: () => Promise<void>;
 }) {
-  const available: Panel[] = ["ep", "sponsor"];
+  const available: Panel[] = ["ep", "sponsor", "hospitality", "content"];
   if (canManage) available.unshift("task");
   if (canDesign) available.push("design");
 
@@ -42,7 +42,9 @@ export function CreateView({
     task: "Task",
     ep: "EP Entry",
     sponsor: "Sponsorship",
-    design: "Design Request"
+    design: "Design Request",
+    hospitality: "Hospitality",
+    content: "Content"
   };
 
   return (
@@ -126,6 +128,45 @@ export function CreateView({
               { name: "detailedUpdate", label: "Detailed Update", textarea: true }
             ]}
             selects={{ currentStatus: SPONSORSHIP_STATUSES }}
+          />
+        )}
+
+        {panel === "hospitality" && (
+          <Form
+            key="hospitality"
+            title="Add Hospitality Entry"
+            endpoint="/api/hospitality"
+            refresh={refresh}
+            fields={[
+              { name: "guestName", label: "Guest Name" },
+              { name: "organization", label: "Organization / Affiliation" },
+              { name: "contactNumber", label: "Contact Number" },
+              { name: "email", label: "Email", type: "email" },
+              { name: "arrivalDate", label: "Arrival Date", type: "date" },
+              { name: "departureDate", label: "Departure Date", type: "date", optional: true },
+              { name: "requirement", label: "Requirement", textarea: true },
+              { name: "detailedUpdate", label: "Detailed Update", textarea: true }
+            ]}
+            selects={{ currentStatus: HOSPITALITY_STATUSES }}
+          />
+        )}
+
+        {panel === "content" && (
+          <Form
+            key="content"
+            title="Add Content Entry"
+            endpoint="/api/content"
+            refresh={refresh}
+            fields={[
+              { name: "contentTitle", label: "Content Title" },
+              { name: "contentType", label: "Type (Post, Reel, Article...)" },
+              { name: "platform", label: "Platform" },
+              { name: "deadline", label: "Deadline", type: "date" },
+              { name: "description", label: "Description", textarea: true },
+              { name: "detailedUpdate", label: "Detailed Update", textarea: true },
+              { name: "link", label: "Link", type: "url", optional: true }
+            ]}
+            selects={{ currentStatus: CONTENT_STATUSES }}
           />
         )}
 

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import {
+  CONTENT_STATUSES,
   DEPARTMENTS,
   DESIGN_STATUSES,
   EP_STATUSES,
+  HOSPITALITY_STATUSES,
   PRIORITIES,
   REGISTRABLE_YEARS,
   RESTRICTED_TEAM_HEAD_ROLE,
@@ -183,6 +185,41 @@ export const sponsorshipStatusUpdateSchema = z.object({
   currentStatus: z.enum(SPONSORSHIP_STATUSES),
   detailedUpdate: z.string().min(2),
   followUpDate: z.string().optional().or(z.literal(""))
+});
+
+export const hospitalityEntrySchema = z.object({
+  guestName: z.string().min(2),
+  organization: z.string().min(2),
+  contactNumber: z.string().min(5),
+  email: z.string().email(),
+  arrivalDate: z.string(),
+  departureDate: z.string().optional().or(z.literal("")),
+  requirement: z.string().min(2),
+  currentStatus: z.enum(HOSPITALITY_STATUSES),
+  detailedUpdate: z.string().min(2)
+});
+
+// Moves an existing hospitality entry along the pipeline.
+export const hospitalityStatusUpdateSchema = z.object({
+  currentStatus: z.enum(HOSPITALITY_STATUSES),
+  detailedUpdate: z.string().min(2)
+});
+
+export const contentEntrySchema = z.object({
+  contentTitle: z.string().min(2),
+  contentType: z.string().min(2),
+  platform: z.string().min(2),
+  deadline: z.string(),
+  description: z.string().min(2),
+  currentStatus: z.enum(CONTENT_STATUSES),
+  detailedUpdate: z.string().min(2),
+  link: z.string().url().optional().or(z.literal(""))
+});
+
+// Moves an existing content entry along the pipeline.
+export const contentStatusUpdateSchema = z.object({
+  currentStatus: z.enum(CONTENT_STATUSES),
+  detailedUpdate: z.string().min(2)
 });
 
 export const designRequestSchema = z.object({

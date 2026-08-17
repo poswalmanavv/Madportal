@@ -41,6 +41,8 @@ export const PRIORITIES = ["Low", "Medium", "High", "Critical"] as const;
 export const EP_STATUSES = ["Interested", "Follow-up Required", "Confirmed", "Rejected"] as const;
 export const SPONSORSHIP_STATUSES = ["Proposal Sent", "Negotiation", "Interested", "Confirmed", "Rejected"] as const;
 export const DESIGN_STATUSES = ["Pending", "In Progress", "Submitted", "Approved", "Rejected"] as const;
+export const HOSPITALITY_STATUSES = ["Pending", "In Progress", "Confirmed", "Completed"] as const;
+export const CONTENT_STATUSES = ["Ideation", "In Progress", "Review", "Published"] as const;
 // Only the design head or a secretary may sign off on a request; a designer can move their
 // own work up to "Submitted" but cannot approve it.
 export const DESIGN_APPROVAL_STATUSES = ["Approved", "Rejected"] as const;
@@ -53,4 +55,6 @@ export type Priority = (typeof PRIORITIES)[number];
 export type EPStatus = (typeof EP_STATUSES)[number];
 export type SponsorshipStatus = (typeof SPONSORSHIP_STATUSES)[number];
 export type DesignStatus = (typeof DESIGN_STATUSES)[number];
+export type HospitalityStatus = (typeof HOSPITALITY_STATUSES)[number];
+export type ContentStatus = (typeof CONTENT_STATUSES)[number];
 export type Portal = "member" | "admin";

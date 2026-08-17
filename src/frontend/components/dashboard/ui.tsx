@@ -35,7 +35,10 @@ const STATUS_TONE: Record<string, string> = {
   Negotiation: "amber",
   // design
   Submitted: "blue",
-  Approved: "green"
+  Approved: "green",
+  // content
+  Ideation: "slate",
+  Published: "green"
 };
 
 const PRIORITY_TONE: Record<string, string> = {

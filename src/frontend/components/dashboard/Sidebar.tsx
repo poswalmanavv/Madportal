@@ -5,7 +5,9 @@ import {
   BarChart3,
   Bell,
   ClipboardList,
+  ConciergeBell,
   Handshake,
+  Newspaper,
   Palette,
   PlusCircle,
   UserRound,
@@ -20,6 +22,8 @@ export type ViewKey =
   | "ep"
   | "sponsorships"
   | "design"
+  | "hospitality"
+  | "content"
   | "members"
   | "notifications"
   | "mentions"
@@ -62,7 +66,9 @@ export function Sidebar({
   const pipelines: Item[] = [
     { key: "ep", label: "EP Pipeline", icon: Handshake, badge: counts.ep },
     { key: "sponsorships", label: "Sponsorships", icon: Handshake, badge: counts.sponsorships },
-    { key: "design", label: "Design Requests", icon: Palette, badge: counts.design }
+    { key: "design", label: "Design Requests", icon: Palette, badge: counts.design },
+    { key: "hospitality", label: "Hospitality", icon: ConciergeBell, badge: counts.hospitality },
+    { key: "content", label: "Content Pipeline", icon: Newspaper, badge: counts.content }
   ];
 
   const rest: Item[] = [

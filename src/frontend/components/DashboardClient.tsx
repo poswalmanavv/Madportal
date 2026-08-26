@@ -124,7 +124,6 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
         setView={setView}
         unread={unread}
         counts={counts}
-        canManage={canManage}
         open={sidebarOpen}
         onNavigate={() => setSidebarOpen(false)}
       />

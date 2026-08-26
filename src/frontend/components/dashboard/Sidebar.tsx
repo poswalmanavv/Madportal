@@ -43,7 +43,6 @@ export function Sidebar({
   setView,
   unread,
   counts,
-  canManage,
   open,
   onNavigate
 }: {
@@ -51,7 +50,6 @@ export function Sidebar({
   setView: (v: ViewKey) => void;
   unread: number;
   counts: Record<string, number>;
-  canManage: boolean;
   open: boolean;
   onNavigate: () => void;
 }) {
@@ -75,10 +73,12 @@ export function Sidebar({
     { key: "members", label: "Team Performance", icon: Users, badge: counts.members },
     // Mentions carries its own unread badge, like Notifications.
     { key: "mentions", label: "Mentions", icon: AtSign, badge: counts.mentions },
-    { key: "notifications", label: "Notifications", icon: Bell, badge: unread }
+    { key: "notifications", label: "Notifications", icon: Bell, badge: unread },
+    // Every member can log an EP/Sponsorship/Hospitality/Content entry regardless of year or
+    // role -- CreateView itself hides the Task and Design panels for anyone who isn't a leader
+    // or the design head, matching what the server actually allows.
+    { key: "create", label: "Create New", icon: PlusCircle }
   ];
-
-  if (canManage) rest.push({ key: "create", label: "Create New", icon: PlusCircle });
 
   function Group({ title, items }: { title: string; items: Item[] }) {
     return (

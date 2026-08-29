@@ -1,12 +1,47 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
 import { db, newId, nowIso } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
 import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
-import { epEntries, epHistory } from "@backend/schema";
+import { epEntries, epHistory, users } from "@backend/schema";
 import { epStatusUpdateSchema } from "@backend/validators";
+
+// The entry plus its full history trail, for the detail view.
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return handleRoute(async () => {
+    const current = sessionUser(await auth());
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { id } = await params;
+    const [row] = await db
+      .select({ entry: epEntries, creator: { id: users.id, name: users.name, year: users.year } })
+      .from(epEntries)
+      .innerJoin(users, eq(users.id, epEntries.createdBy))
+      .where(eq(epEntries.id, id))
+      .limit(1);
+    if (!row) return NextResponse.json({ error: "EP entry not found" }, { status: 404 });
+
+    if (row.entry.createdBy !== current.id && !canManageTasks(current)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const history = await db
+      .select({ entry: epHistory, actorName: users.name })
+      .from(epHistory)
+      .innerJoin(users, eq(users.id, epHistory.actor))
+      .where(eq(epHistory.entryId, id))
+      .orderBy(desc(epHistory.createdAt));
+
+    return NextResponse.json({
+      ...row.entry,
+      _id: row.entry.id,
+      createdByUser: row.creator,
+      history: history.map((h) => ({ ...h.entry, actorName: h.actorName }))
+    });
+  });
+}
 
 // Moves an existing EP entry along the pipeline and records who moved it and why.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

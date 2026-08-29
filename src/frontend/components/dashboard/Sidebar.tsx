@@ -27,8 +27,10 @@ export type ViewKey =
   | "members"
   | "notifications"
   | "mentions"
-  // Not a nav item: the task detail view, reached by clicking a task row or a mention.
+  // Not nav items: detail views reached by clicking a row (a task, a mention, or an
+  // EP/Sponsorship/Hospitality/Content entry).
   | "task"
+  | "pipeline-entry"
   | "create";
 
 type Item = {

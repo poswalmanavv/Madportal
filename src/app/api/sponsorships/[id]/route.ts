@@ -1,12 +1,47 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { auth } from "@backend/auth";
 import { db, newId, nowIso } from "@backend/db";
 import { badJson, handleRoute, parseJson } from "@backend/http";
 import { logPerformance, notify } from "@backend/queries";
 import { canManageTasks, sessionUser } from "@backend/rbac";
-import { sponsorshipEntries, sponsorshipHistory } from "@backend/schema";
+import { sponsorshipEntries, sponsorshipHistory, users } from "@backend/schema";
 import { sponsorshipStatusUpdateSchema } from "@backend/validators";
+
+// The entry plus its full history trail, for the detail view.
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return handleRoute(async () => {
+    const current = sessionUser(await auth());
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { id } = await params;
+    const [row] = await db
+      .select({ entry: sponsorshipEntries, creator: { id: users.id, name: users.name, year: users.year } })
+      .from(sponsorshipEntries)
+      .innerJoin(users, eq(users.id, sponsorshipEntries.createdBy))
+      .where(eq(sponsorshipEntries.id, id))
+      .limit(1);
+    if (!row) return NextResponse.json({ error: "Sponsorship entry not found" }, { status: 404 });
+
+    if (row.entry.createdBy !== current.id && !canManageTasks(current)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const history = await db
+      .select({ entry: sponsorshipHistory, actorName: users.name })
+      .from(sponsorshipHistory)
+      .innerJoin(users, eq(users.id, sponsorshipHistory.actor))
+      .where(eq(sponsorshipHistory.entryId, id))
+      .orderBy(desc(sponsorshipHistory.createdAt));
+
+    return NextResponse.json({
+      ...row.entry,
+      _id: row.entry.id,
+      createdByUser: row.creator,
+      history: history.map((h) => ({ ...h.entry, actorName: h.actorName }))
+    });
+  });
+}
 
 // Advances an existing sponsorship and appends to its history trail.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -256,10 +256,16 @@ function StatusEditor({
 
 /** Shared cell renderers, so the three pipelines look identical. */
 export const cell = {
-  ref: (id: string, title: string, sub?: string) => (
+  ref: (id: string, title: string, sub?: string, onOpen?: () => void) => (
     <>
       <RefTag id={id} />
-      <p className="mt-0.5 font-semibold">{title}</p>
+      {onOpen ? (
+        <button onClick={onOpen} className="mt-0.5 block text-left font-semibold hover:text-brand hover:underline">
+          {title}
+        </button>
+      ) : (
+        <p className="mt-0.5 font-semibold">{title}</p>
+      )}
       {sub && <p className="mt-0.5 line-clamp-1 text-xs text-neutral-500">{sub}</p>}
     </>
   ),

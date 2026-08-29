@@ -7,12 +7,102 @@ import { CreateView } from "./dashboard/CreateView";
 import { MembersView } from "./dashboard/MembersView";
 import { NotificationsView } from "./dashboard/NotificationsView";
 import { OverviewView } from "./dashboard/OverviewView";
+import { PipelineDetail } from "./dashboard/PipelineDetail";
 import { PipelineView, cell } from "./dashboard/PipelineView";
 import { Sidebar, type ViewKey } from "./dashboard/Sidebar";
 import { MentionsView } from "./dashboard/MentionsView";
 import { TaskDetail } from "./dashboard/TaskDetail";
 import { TasksView } from "./dashboard/TasksView";
 import { UserMenu } from "./dashboard/UserMenu";
+import { formatDate } from "./dashboard/ui";
+
+// The four pipelines that share Sponsorship's shape: a single creator, a status, and their
+// own history trail. Design Requests is deliberately excluded -- it has no creator field, no
+// history table, and an assignee + approval flow instead, so it keeps its own inline editor.
+type PipelineKind = "ep" | "sponsorships" | "hospitality" | "content";
+
+function pipelineDetailProps(kind: PipelineKind, id: string) {
+  switch (kind) {
+    case "ep":
+      return {
+        endpoint: `/api/ep-entries/${id}`,
+        statuses: EP_STATUSES,
+        buildBody: (status: string, comment: string) => ({ currentStatus: status, detailedUpdate: comment }),
+        titleOf: (row: any) => row.epName,
+        statusOf: (row: any) => row.currentStatus,
+        descriptionOf: (row: any) => row.discussionSummary,
+        latestUpdateOf: (row: any) => row.detailedUpdate,
+        detailFields: (row: any) => [
+          { label: "Organization", value: row.organization || "—" },
+          { label: "Contact Person", value: row.personContacted || "—" },
+          { label: "Contact Number", value: row.contactNumber || "—" },
+          { label: "Email", value: row.email || "—" },
+          { label: "Date", value: formatDate(row.date) },
+          ...(row.attachNotes ? [{ label: "Notes", value: row.attachNotes }] : [])
+        ]
+      };
+    case "sponsorships":
+      return {
+        endpoint: `/api/sponsorships/${id}`,
+        statuses: SPONSORSHIP_STATUSES,
+        buildBody: (status: string, comment: string) => ({ currentStatus: status, detailedUpdate: comment }),
+        titleOf: (row: any) => row.companyName,
+        statusOf: (row: any) => row.currentStatus,
+        descriptionOf: (row: any) => row.sponsorshipRequirement,
+        latestUpdateOf: (row: any) => row.detailedUpdate,
+        detailFields: (row: any) => [
+          { label: "Industry", value: row.industry || "—" },
+          { label: "Website", value: row.companyWebsite || "—" },
+          { label: "Contact Person", value: row.contactPersonName || "—" },
+          { label: "Designation", value: row.designation || "—" },
+          { label: "Contact Number", value: row.contactNumber || "—" },
+          { label: "Email", value: row.email || "—" },
+          { label: "Contacted", value: formatDate(row.dateContacted) },
+          { label: "Follow-up", value: formatDate(row.followUpDate) }
+        ]
+      };
+    case "hospitality":
+      return {
+        endpoint: `/api/hospitality/${id}`,
+        statuses: HOSPITALITY_STATUSES,
+        buildBody: (status: string, comment: string) => ({ currentStatus: status, detailedUpdate: comment }),
+        titleOf: (row: any) => row.guestName,
+        statusOf: (row: any) => row.currentStatus,
+        descriptionOf: (row: any) => row.requirement,
+        latestUpdateOf: (row: any) => row.detailedUpdate,
+        detailFields: (row: any) => [
+          { label: "Organization", value: row.organization || "—" },
+          { label: "Contact Number", value: row.contactNumber || "—" },
+          { label: "Email", value: row.email || "—" },
+          { label: "Arrival", value: formatDate(row.arrivalDate) },
+          { label: "Departure", value: formatDate(row.departureDate) }
+        ]
+      };
+    case "content":
+      return {
+        endpoint: `/api/content/${id}`,
+        statuses: CONTENT_STATUSES,
+        buildBody: (status: string, comment: string) => ({ currentStatus: status, detailedUpdate: comment }),
+        titleOf: (row: any) => row.contentTitle,
+        statusOf: (row: any) => row.currentStatus,
+        descriptionOf: (row: any) => row.description,
+        latestUpdateOf: (row: any) => row.detailedUpdate,
+        detailFields: (row: any) => [
+          { label: "Type", value: row.contentType || "—" },
+          { label: "Platform", value: row.platform || "—" },
+          { label: "Deadline", value: formatDate(row.deadline) },
+          ...(row.link ? [{ label: "Link", value: row.link }] : [])
+        ]
+      };
+  }
+}
+
+const PIPELINE_BACK_VIEW: Record<PipelineKind, ViewKey> = {
+  ep: "ep",
+  sponsorships: "sponsorships",
+  hospitality: "hospitality",
+  content: "content"
+};
 
 type DashboardData = {
   current: {
@@ -40,6 +130,7 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
   const [data, setData] = useState(initialData);
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedPipeline, setSelectedPipeline] = useState<{ kind: PipelineKind; id: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [notifications, setNotifications] = useState<Array<Record<string, any>>>([]);
@@ -111,6 +202,12 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
   function openTask(taskId: string) {
     setSelectedTaskId(taskId);
     setView("task");
+  }
+
+  // Opening an EP/Sponsorship/Hospitality/Content entry from its table row.
+  function openPipelineEntry(kind: PipelineKind, id: string) {
+    setSelectedPipeline({ kind, id });
+    setView("pipeline-entry");
   }
 
   const selectedTask = selectedTaskId
@@ -206,6 +303,17 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               </p>
             ))}
 
+          {view === "pipeline-entry" && selectedPipeline && (
+            <PipelineDetail
+              id={selectedPipeline.id}
+              currentUserId={data.current.id}
+              canManage={canManage}
+              onBack={() => setView(PIPELINE_BACK_VIEW[selectedPipeline.kind])}
+              refresh={refresh}
+              {...pipelineDetailProps(selectedPipeline.kind, selectedPipeline.id)}
+            />
+          )}
+
           {view === "mentions" && <MentionsView onOpenTask={openTask} refresh={refresh} />}
 
           {view === "tasks" && (
@@ -247,7 +355,13 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               buildBody={(status, comment) => ({ currentStatus: status, detailedUpdate: comment })}
               refresh={refresh}
               columns={[
-                { header: "Partnership", render: (row) => cell.ref(String(row._id ?? row.id), row.epName, row.organization) },
+                {
+                  header: "Partnership",
+                  render: (row) =>
+                    cell.ref(String(row._id ?? row.id), row.epName, row.organization, () =>
+                      openPipelineEntry("ep", String(row._id ?? row.id))
+                    )
+                },
                 { header: "Contact", render: (row) => cell.person(row.personContacted) },
                 { header: "Status", render: (row) => cell.status(row.currentStatus) },
                 { header: "Date", render: (row) => cell.date(row.date) }
@@ -270,7 +384,10 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               columns={[
                 {
                   header: "Company",
-                  render: (row) => cell.ref(String(row._id ?? row.id), row.companyName, row.sponsorshipRequirement)
+                  render: (row) =>
+                    cell.ref(String(row._id ?? row.id), row.companyName, row.sponsorshipRequirement, () =>
+                      openPipelineEntry("sponsorships", String(row._id ?? row.id))
+                    )
                 },
                 { header: "Industry", render: (row) => (row.industry ? cell.tag(row.industry) : "—") },
                 { header: "Contact", render: (row) => cell.person(row.contactPersonName) },
@@ -323,7 +440,13 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               buildBody={(status, comment) => ({ currentStatus: status, detailedUpdate: comment })}
               refresh={refresh}
               columns={[
-                { header: "Guest", render: (row) => cell.ref(String(row._id ?? row.id), row.guestName, row.requirement) },
+                {
+                  header: "Guest",
+                  render: (row) =>
+                    cell.ref(String(row._id ?? row.id), row.guestName, row.requirement, () =>
+                      openPipelineEntry("hospitality", String(row._id ?? row.id))
+                    )
+                },
                 { header: "Organization", render: (row) => (row.organization ? cell.tag(row.organization) : "—") },
                 { header: "Status", render: (row) => cell.status(row.currentStatus) },
                 { header: "Arrival", render: (row) => cell.date(row.arrivalDate) }
@@ -346,7 +469,10 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               columns={[
                 {
                   header: "Content",
-                  render: (row) => cell.ref(String(row._id ?? row.id), row.contentTitle, row.description)
+                  render: (row) =>
+                    cell.ref(String(row._id ?? row.id), row.contentTitle, row.description, () =>
+                      openPipelineEntry("content", String(row._id ?? row.id))
+                    )
                 },
                 { header: "Platform", render: (row) => (row.platform ? cell.tag(row.platform) : "—") },
                 { header: "Status", render: (row) => cell.status(row.currentStatus) },

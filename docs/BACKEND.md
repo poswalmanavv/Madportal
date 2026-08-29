@@ -10,8 +10,11 @@ src/backend/
   auth.ts          NextAuth config: credentials provider, JWT callbacks, session shape
   db.ts            libSQL client + Drizzle instance, newId(), pingDB()
   schema.ts        Drizzle SQL schema (the single source of truth for the tables)
-  queries.ts       Shared user reads (stitches user_departments back into departments[])
+  queries.ts       Shared user reads (stitches user_departments back into departments[]),
+                   logPerformance(), notify() / notifyMany()
   task-queries.ts  Task reads (stitches task_assignees back into assignedTo[])
+  comment-queries.ts  Task comment thread: canAccessTaskThread, listComments,
+                      listMentionsFor, unreadMentionCount
   dashboard.ts     Builds the dashboard aggregate -- used by BOTH the page and the API
   rbac.ts          Authorization rules: isLeader, canManageTasks, canViewMember, canManageDesign
   validators.ts    Zod schemas -- every request body is parsed through one of these
@@ -48,8 +51,8 @@ export async function POST(request: Request) {
     const payload = taskSchema.safeParse(body.data);  // 4. validate
     if (!payload.success) return NextResponse.json({ error: payload.error.flatten() }, { status: 400 });
 
-    await connectDB();                                // 5. do the work
-    ...
+    await db.insert(tasks).values({ ... });           // 5. do the work -- `db` is a ready
+    ...                                                //    Drizzle/libSQL client, nothing to open
   });
 }
 ```
@@ -94,21 +97,45 @@ All routes require a session unless stated. `403` = authenticated but not permit
 | POST | `/api/auth/register` | anonymous | Rate limited: 5/hour/IP. 4th years must send `teamHeadRole`; others must not. |
 | POST | `/api/auth/change-password` | any member | Rate limited 5/15min. Sets `passwordChangedAt`, revoking all older sessions. |
 | GET/POST | `/api/auth/[...nextauth]` | anonymous | NextAuth handler (sign in / out / session / CSRF). |
-| GET | `/api/health` | anonymous | Uptime probe. `503` when Mongo is unreachable. |
+| GET | `/api/health` | anonymous | Uptime probe. `503` when the database is unreachable. |
 | GET | `/api/dashboard` | any member | The one aggregate the UI reads. Scoped by `canViewMember`. |
-| GET/POST | `/api/tasks` | member / **leader** | POST requires `canManageTasks`. |
+| GET/POST | `/api/tasks` | member / **leader** | POST requires `canManageTasks`. GET returns every task for a leader, only assigned-to-you tasks otherwise. |
+| GET/DELETE | `/api/tasks/[id]` | assignee/leader (GET); secretary (DELETE) | GET returns the task with its comment thread and full timeline, for the task detail page. DELETE also removes its comments and history. |
 | POST | `/api/tasks/[id]/updates` | assignee or leader | Status + progress + timeline comment. |
-| GET/POST | `/api/ep-entries` | any member | |
-| PATCH | `/api/ep-entries/[id]` | owner or leader | Moves status, appends history. |
-| GET/POST | `/api/sponsorships` | any member | |
-| PATCH | `/api/sponsorships/[id]` | owner or leader | Moves status, appends history. |
-| GET/POST | `/api/design-requests` | POST: `canManageDesign` | |
+| GET/POST | `/api/tasks/[id]/comments` | assignee or leader (`canAccessTaskThread`) | The comment thread: `@mentions` (validated against real, visible members) and up to 10 attachments per comment. Attachments have no backing file store -- see "Comment attachments" below. |
+| GET/POST | `/api/mentions` | any member | GET: comments the caller was `@`-mentioned in, newest first, with unread count. POST marks one (`{commentId}`) or all of the caller's own mentions read. |
+| GET/POST | `/api/ep-entries` | any member | POST has no role check -- any member can log an EP entry. GET scopes to your own entries unless you're a leader. |
+| GET/PATCH | `/api/ep-entries/[id]` | owner or leader | GET returns the entry with its full `ep_history` trail, for the detail page. PATCH moves status and appends a history row. |
+| GET/POST | `/api/sponsorships` | any member | Same shape as `/api/ep-entries`. |
+| GET/PATCH | `/api/sponsorships/[id]` | owner or leader | Same shape as `/api/ep-entries/[id]`. |
+| GET/POST | `/api/hospitality` | any member | Same shape as `/api/ep-entries`. |
+| GET/PATCH | `/api/hospitality/[id]` | owner or leader | Same shape as `/api/ep-entries/[id]`. |
+| GET/POST | `/api/content` | any member | Same shape as `/api/ep-entries`. |
+| GET/PATCH | `/api/content/[id]` | owner or leader | Same shape as `/api/ep-entries/[id]`. |
+| GET/POST | `/api/design-requests` | POST: `canManageDesign` | Structurally different from the four above: no `createdBy`, no history table -- an assignee (`assignedDesigner`) + approval flow instead. No single-entry GET; it stays on `PipelineView`'s inline editor rather than a detail page. |
 | PATCH | `/api/design-requests/[id]` | assigned designer or design head | **Separation of duties:** only the design head/secretary may set `Approved`/`Rejected`. |
 | GET/POST | `/api/notifications` | any member | GET lists own + unread count. POST marks one (`{id}`) or all read. |
 | GET/POST | `/api/admin/members` | secretary | |
 | PUT/DELETE | `/api/admin/members/[id]` | secretary | DELETE is a soft delete (`active: false`), which also revokes live sessions. |
 | GET | `/api/admin/export` | secretary | CSV, `?format=excel` for HTML. Formula injection neutralized. |
 | POST | `/api/admin/seed` | secretary, non-production | **Wipes the database.** Blocked when `NODE_ENV=production`. |
+
+**EP / Sponsorship / Hospitality / Content are intentionally open to every member, any
+year.** Creating one has never required `canManageTasks` -- only *moving someone else's*
+entry does. This differs from Tasks and Design Requests, where creation itself is
+leader-gated. If you add a fifth pipeline shaped like these four, decide the creation rule
+deliberately rather than copy-pasting a POST handler with no check by habit.
+
+### Comment attachments
+
+There is no file storage provider behind this app (no S3, Cloudinary, or Netlify Blobs).
+`commentAttachments.url` is a plain `text` column that can hold either a pasted link or a
+`data:` URL -- `commentSchema`'s `z.string().url()` accepts both, since `data:` is a valid
+URL scheme. The composer (`TaskDetail.tsx`) reads a picked file into a `data:` URL
+client-side and posts it exactly like a link. It caps a single file at 3 MB and a comment's
+attachments at 4 MB combined, to stay under Netlify's function payload ceiling once base64's
+~1.37x overhead is accounted for. Adding real object storage later is a change to *where the
+url comes from*, not to the schema or the API contract.
 
 ## Sessions
 
@@ -178,6 +205,10 @@ you** — a new table will not exist in production until you do.
 - **No error monitoring.** Unhandled errors are `console.error`'d and nothing is notified.
 - `/api/dashboard` loads all users and tasks then filters in memory. Fine at club scale;
   it will not hold up at thousands of documents.
+- **Comment attachments live inline in SQLite as `data:` URLs** (see above) -- there is no
+  object storage. Fine for the occasional screenshot or short PDF; a club that wants larger
+  or more frequent attachments should add a real storage provider before this becomes a
+  database-bloat problem.
 
 ## Commands
 

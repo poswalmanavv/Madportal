@@ -1,7 +1,8 @@
 # MAD Club Management Portal
 
 Full-stack operations portal for the Managing and Directing Club, NIT Kurukshetra —
-tasks, event partnerships, sponsorships, design requests, team performance and reports.
+tasks, event partnerships, sponsorships, hospitality, content, design requests, team
+performance and reports.
 
 Live: **https://maddashboard.netlify.app**
 
@@ -9,12 +10,15 @@ Live: **https://maddashboard.netlify.app**
 
 - **Registration** with `@nitkkr.ac.in` email validation (2nd–4th year)
 - **Role-based access** — Member, Team Head, Secretary
-- **Task management** — create, assign (searchable picker), track progress
-- **Event Partnership (EP) tracking** with a status pipeline and history trail
-- **Sponsorship pipeline** — outreach, negotiation, status transitions
+- **Task management** — create, assign (searchable picker), track progress, with a full
+  detail page (comments, `@mentions`, file attachments, activity timeline)
+- **Event Partnership (EP), Sponsorship, Hospitality and Content pipelines** — each with a
+  status trail and its own detail page (history timeline, "Created By", quick status update).
+  Any member (2nd year and up) can log a new entry in these four; only a team lead can move
+  one that isn't theirs
 - **Design request workflow** with designer/head separation of duties
 - **Team performance** dashboards and charts, scoped by team
-- **Notifications** — in-app bell for assignments and status changes
+- **Notifications** — in-app bell for assignments, mentions and status changes
 - **CSV / Excel export** for secretaries
 - **Responsive**, with a persisted light / dark / system theme
 
@@ -160,7 +164,9 @@ SQLite via libSQL/Drizzle. Schema is `src/backend/schema.ts`; migrations live in
 and are committed. Tables:
 
 `users`, `user_departments`, `departments`, `tasks`, `task_assignees`, `task_timeline`,
+`task_comments`, `comment_mentions`, `comment_attachments`,
 `ep_entries`, `ep_history`, `sponsorship_entries`, `sponsorship_history`,
+`hospitality_entries`, `hospitality_history`, `content_entries`, `content_history`,
 `design_requests`, `notifications`, `performance_logs`.
 
 Changing the schema is `pnpm db:generate` then `pnpm db:migrate` (and

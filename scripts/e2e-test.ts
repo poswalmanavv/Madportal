@@ -365,7 +365,15 @@ async function main() {
   // The positive case: an allowlisted secretary CAN pick it. This is the real signup flow --
   // the seed already created this account, so drop it first and register it the way a human
   // would on the live site.
-  const realSecretaryEmail = (process.env.AUTHORIZED_SECRETARIES ?? "").split(",").map((e) => e.trim())[3];
+  const allowlistedSecretaryEmails = (process.env.AUTHORIZED_SECRETARIES ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter((email) => email.length > 0);
+  const primarySecretaryEmail = allowlistedSecretaryEmails[0];
+  const realSecretaryEmail = allowlistedSecretaryEmails[3] ?? primarySecretaryEmail;
+  if (!realSecretaryEmail || !primarySecretaryEmail) {
+    throw new Error("AUTHORIZED_SECRETARIES must include at least one email for e2e secretary registration test");
+  }
   await db.collection("users").deleteOne({ email: realSecretaryEmail });
 
   const realSecretaryRegister = await anon.post("/api/auth/register", {
@@ -492,9 +500,10 @@ async function main() {
   // ------------------------------------------------------------------------ secretary flow
   section("Secretary privileges");
 
-  const secretaryEmail = (process.env.AUTHORIZED_SECRETARIES ?? "").split(",")[0]?.trim().toLowerCase();
+  const secretaryEmail = primarySecretaryEmail.toLowerCase();
+  const secretaryPassword = secretaryEmail === realSecretaryEmail.toLowerCase() ? "RealSecPass@123" : SEED_PASSWORD;
   const secretary = new Session();
-  const secretaryLoggedIn = await secretary.login(secretaryEmail, SEED_PASSWORD, "4th Year", "admin");
+  const secretaryLoggedIn = await secretary.login(secretaryEmail, secretaryPassword, "4th Year", "admin");
   check(`Secretary (${secretaryEmail}) can sign in through the admin portal`, secretaryLoggedIn);
 
   const rohan = await db.collection("users").findOne({ email: "rohan@nitkkr.ac.in" });
